@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% from "_macros.html" import verdict, thumb, fblink %}
+{% block title %}Disk check · fb-dl{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h2>Disk check</h2>
+  <form method="post" action="{{ base }}/integrity/rescan"><button class="btn">Re-scan now</button></form>
+</div>
+<p class="muted">
+  Read-only. Every photo is opened and fully decoded; albums are checked for gaps with the
+  <code>num</code> positions and the <code>next_photo_id</code> chain written by gallery-dl.
+  Only new or changed files are re-checked on later passes.
+</p>
+
+{% if not integrity_on %}<p class="alert warn">The disk check is turned off (INTEGRITY=0).</p>{% endif %}
+{% if scanner.cache.error %}<p class="alert warn">{{ scanner.cache.error }}: results are re-computed after each restart. Mount a writable <code>/data</code>.</p>{% endif %}
+{% if scanner.last_error %}<p class="alert bad">Scanner error: {{ scanner.last_error }}</p>{% endif %}
+
+<div class="grid wide">
+  <div class="tile">
+    <div class="k">Scan</div>
+    <div class="v">{% if ip.phase in ('idle', 'waiting') %}{{ ip.phase }}{% else %}{{ ip.done|n }}<small>/{{ ip.total|n }} files</small>{% endif %}</div>
+    <div class="s">{% if ip.phase not in ('idle', 'waiting') %}{{ ip.phase }}{% endif %}{% if ir and ir.finished %} · last pass done {{ ((now.timestamp() - ir.finished))|dur }} ago{% endif %}</div>
+    {% if ip.total and ip.phase == 'checking files' %}<div class="bar"><i style="width:{{ (100*ip.done/ip.total)|round(1) }}%"></i></div>{% endif %}
+    {% if ir and ir.partial %}<div class="s t-warn">first pass still running: results are incomplete</div>{% endif %}
+  </div>
+  {% if ir %}{% set c = ir.counts() %}
+  <div class="tile">
+    <div class="k">Albums</div>
+    <div class="v">{{ c.get('verified', 0) }}<small>/{{ ir.albums|length }} verified</small></div>
+    <div class="s"><span class="t-bad">{{ c.get('problems', 0) }} with problems</span> · <span class="t-warn">{{ c.get('warnings', 0) }} with warnings</span></div>
+    <div class="s">{{ c.get('in progress', 0) }} downloading · {{ c.get('scanning', 0) }} not fully scanned</div>
+  </div>
+  <div class="tile">
+    <div class="k">Photos</div>
+    <div class="v">{{ ir.checked|n }}<small>/{{ ir.files|n }} checked</small></div>
+    <div class="s">{{ ir.bytes|bytes }} · {% for f, n in ir.formats.items()|sort %}{{ f }} {{ n|n }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+    <div class="s">{% set pf = ir.problem_files() %}{% if pf %}<span class="t-bad">{{ pf }} damaged / wrong-format</span>{% else %}0 damaged{% endif %}</div>
+  </div>
+  <div class="tile">
+    <div class="k">Missing</div>
+    {% set ns = namespace(m=0) %}{% for a in ir.albums.values() %}{% set ns.m = ns.m + a.missing_estimate %}{% endfor %}
+    <div class="v {{ 't-bad' if ns.m else '' }}">{{ ns.m }}<small> photo(s)</small></div>
+    <div class="s">from gaps in positions and the photo chain</div>
+  </div>
+  <div class="tile">
+    <div class="k">Duplicates</div>
+    <div class="v">{{ ir.exact_dups|length + ir.id_dups|length }}<small> group(s)</small></div>
+    <div class="s">{{ ir.similar|length }} near-identical pair(s) · {{ ir.cross_album_ids|length }} photo(s) in several albums</div>
+  </div>
+  <div class="tile">
+    <div class="k">Download archive</div>
+    {% if ir.archive_error %}<div class="v t-bad">error</div><div class="s">{{ ir.archive_error }}</div>
+    {% elif ir.archive_entries is none %}<div class="v">–</div><div class="s">no archive file</div>
+    {% else %}{% set ns2 = namespace(lost=0) %}{% for a in ir.albums.values() %}{% set ns2.lost = ns2.lost + a.archived_missing|length %}{% endfor %}
+    <div class="v">{{ ir.archive_entries|n }}<small> entries</small></div>
+    <div class="s">{% if ns2.lost %}<span class="t-bad">{{ ns2.lost }} archived but not on disk</span>{% else %}every archived photo is on disk{% endif %}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if ir %}
+<section>
+  <h3>Albums</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Check</th><th>Account › Album</th><th class="num">Files</th><th class="num">Positions</th><th>Chain</th><th class="num">Missing</th><th class="num">Damaged</th><th>Issues</th></tr></thead>
+    <tbody>
+    {% for a in albums %}
+    <tr class="sev-{{ 'bad' if a.verdict == 'problems' else 'warn' if a.verdict == 'warnings' else 'ok' }}">
+      <td>{{ verdict(a) }}</td>
+      <td class="name"><a href="{{ base }}/album/{{ a.set_id }}"><bdi dir="auto" class="muted">{{ a.username or '?' }}</bdi> › <bdi dir="auto">{{ a.title or a.set_id }}</bdi></a><div class="sid">{{ a.set_id }}</div></td>
+      <td class="num">{{ a.checked|n }}/{{ a.media|n }}</td>
+      <td class="num">{% if a.max_num %}1–{{ a.max_num }}{% else %}–{% endif %}</td>
+      <td>{{ a.chain }}</td>
+      <td class="num">{% if a.missing_estimate %}<b class="t-bad">{{ a.missing_estimate }}</b>{% else %}0{% endif %}</td>
+      <td class="num">{% if a.bad_files %}<b class="t-bad">{{ a.bad_files|length }}</b>{% else %}0{% endif %}</td>
+      <td class="flags">{% for i in a.issues %}<div class="t-{{ i.severity }}">{{ i.text }}</div>{% endfor %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+{% if ir.exact_dups or ir.id_dups %}
+<section>
+  <h3>Duplicates</h3>
+  {% for g in ir.id_dups %}
+  <div class="dup"><div class="dup-h t-warn">Same photo ID {{ g[0].photo_id }} saved {{ g|length }} times</div>
+    <div class="thumbs">{% for e in g %}{{ thumb(e, base) }}{% endfor %}</div></div>
+  {% endfor %}
+  {% for g in ir.exact_dups %}
+  <div class="dup"><div class="dup-h t-warn">Identical image under {{ g|length }} different photo IDs</div>
+    <div class="thumbs">{% for e in g %}{{ thumb(e, base) }}{% endfor %}</div></div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if ir.similar %}
+<section>
+  <h3>Near-identical images <small class="muted">({{ ir.similar|length }} pair(s): resized, re-compressed or edited copies; may be legit bursts)</small></h3>
+  {% for d, a, b in ir.similar[:100] %}
+  <div class="dup"><div class="dup-h">difference {{ d }}/64</div><div class="thumbs">{{ thumb(a, base) }}{{ thumb(b, base) }}</div></div>
+  {% endfor %}
+  {% if ir.similar|length > 100 %}<p class="muted">… {{ ir.similar|length - 100 }} more.</p>{% endif %}
+</section>
+{% endif %}
+
+{% if ir.cross_album_ids %}
+<section>
+  <details><summary>{{ ir.cross_album_ids|length }} photo(s) present in several albums (usually fine: Facebook lets a photo appear in more than one album)</summary>
+  <ul class="ids">{% for g in ir.cross_album_ids[:500] %}<li>{{ g[0].photo_id }}: {% for e in g %}<bdi dir="auto">{{ e.folder }}</bdi>{% if not loop.last %} · {% endif %}{% endfor %}</li>{% endfor %}</ul>
+  </details>
+</section>
+{% endif %}
+
+{% for i in ir.loose %}<p class="alert {{ i.severity }}">{{ i.text }}</p>{% endfor %}
+{% else %}
+<p class="muted">No scan result yet.</p>
+{% endif %}
+{% endblock %}

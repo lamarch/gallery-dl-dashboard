@@ -8,15 +8,18 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+from collections import OrderedDict
+
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import albums as albums_mod
 from . import disk as disk_mod
+from .integrity import IntegrityScanner
 from .logparse import END_REASONS, LogTail, decode_exit, set_log_tz
-from .status import album_rows, event_counts, header
+from .status import AlbumRow, album_rows, event_counts, header
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CFG = {
@@ -27,6 +30,11 @@ CFG = {
     "base": os.environ.get("BASE_PATH", "").rstrip("/"),
     "poll": float(os.environ.get("POLL_SECONDS", "2")),
     "disk_every": float(os.environ.get("DISK_SCAN_SECONDS", "60")),
+    "data_dir": os.environ.get("DATA_DIR", "/data"),
+    "archive_file": os.environ.get("ARCHIVE_FILE", "/downloads/logs/fb-archive.sqlite3"),
+    "integrity": os.environ.get("INTEGRITY", "1") != "0",
+    "integrity_mbps": float(os.environ.get("INTEGRITY_MAX_MBPS", "40")),
+    "integrity_every": float(os.environ.get("INTEGRITY_RESCAN_SECONDS", "900")),
 }
 
 
@@ -78,13 +86,34 @@ class Monitor:
 MON = Monitor()
 
 
+def current_set():
+    s = MON.tail.state.session
+    j = s.current_job if s else None
+    return j.set_id if j else None
+
+
+def _locked_current_set():
+    with MON.lock:
+        return current_set()
+
+
+_cache_path = (os.path.join(CFG["data_dir"], "integrity.sqlite3")
+               if os.path.isdir(CFG["data_dir"]) and os.access(CFG["data_dir"], os.W_OK) else None)
+SCANNER = IntegrityScanner(CFG["downloads_root"], _cache_path, CFG["archive_file"],
+                           CFG["integrity_mbps"], CFG["integrity_every"], _locked_current_set)
+
+
 @asynccontextmanager
 async def lifespan(app):
     MON.refresh()
     t = threading.Thread(target=MON.run, daemon=True, name="monitor")
     t.start()
+    if CFG["integrity"]:
+        threading.Thread(target=SCANNER.run, daemon=True, name="integrity").start()
     yield
     MON.stop.set()
+    SCANNER.stop.set()
+    SCANNER.poke.set()
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -144,25 +173,36 @@ def ctx(request, **kw):
     with MON.lock:
         st = MON.tail.state
         h = header(st, MON.albums, MON.disk, now)
+        kw.update(ir=SCANNER.report, ip=SCANNER.progress, scanner=SCANNER,
+                  integrity_on=CFG["integrity"])
         kw.update(request=request, h=h, now=now, st=st, mon=MON, tail=MON.tail,
                   albums_error=MON.albums_error, disk=MON.disk,
                   bad_events=sum(1 for e in st.events if e.severity == "bad"))
         return kw
 
 
-def current_set():
-    s = MON.tail.state.session
-    j = s.current_job if s else None
-    return j.set_id if j else None
-
-
 # ---- pages --------------------------------------------------------------------
+def attach_checks(rows, flags=True):
+    """Add the disk-check verdict of each album to its row (and to its flags)."""
+    rep = SCANNER.report
+    for r in rows:
+        ac = rep.albums.get(r.set_id) if rep and r.set_id else None
+        r.check = ac
+        if not flags or ac is None or ac.verdict not in ("problems", "warnings"):
+            continue
+        sev = "bad" if ac.verdict == "problems" else "warn"
+        texts = [i.text for i in ac.issues if i.severity == sev]
+        r.flags.append((sev, "disk check: " + "; ".join(texts[:3]) + ("…" if len(texts) > 3 else "")))
+    return rows
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     with MON.lock:
         st = MON.tail.state
         rows = album_rows(st, MON.albums, MON.disk, current_set())
         recent = [e for e in reversed(st.events) if e.severity != "info"][:15]
+    attach_checks(rows)
     flagged = [r for r in rows if r.severity in ("bad", "warn")]
     return templates.TemplateResponse(request, "index.html", ctx(
         request, rows=rows, recent=recent, flagged=flagged, page="albums"))
@@ -177,10 +217,66 @@ def album(request: Request, set_id: str):
         jobs = [j for j in st.jobs if j.set_id == set_id]
         events = [e for e in st.events if e.set_id == set_id]
         d = MON.disk.albums.get(set_id) if MON.disk else None
+    rep = SCANNER.report
+    ac = rep.albums.get(set_id) if rep else None
+    if row is None and ac is not None:        # on disk only (not in albums.txt nor the log)
+        row = AlbumRow(None, set_id, ac.username, ac.title,
+                       ac.folders[0] if ac.folders else None, "unlisted")
     if row is None:
         raise HTTPException(404, "unknown album")
+    attach_checks([row], flags=False)   # details are shown in the disk-check section
     return templates.TemplateResponse(request, "album.html", ctx(
-        request, row=row, jobs=jobs, events=list(reversed(events))[:300], d=d, page="albums"))
+        request, row=row, jobs=jobs, events=list(reversed(events))[:300], d=d, ac=ac,
+        page="albums"))
+
+
+@app.get("/integrity", response_class=HTMLResponse)
+def integrity_page(request: Request):
+    rep = SCANNER.report
+    albums = sorted(rep.albums.values(), key=lambda a: (
+        {"problems": 0, "warnings": 1, "scanning": 2, "in progress": 3, "verified": 4}[a.verdict],
+        a.username or "", a.title or "", a.set_id)) if rep else []
+    return templates.TemplateResponse(request, "integrity.html", ctx(
+        request, albums=albums, page="integrity"))
+
+
+@app.post("/integrity/rescan")
+def integrity_rescan():
+    SCANNER.poke.set()
+    return RedirectResponse(f"{CFG['base']}/integrity", status_code=303)
+
+
+_THUMBS: "OrderedDict[str, bytes]" = OrderedDict()
+_THUMBS_LOCK = threading.Lock()
+
+
+@app.get("/thumb/{key}")
+def thumb(key: str):
+    """Small JPEG preview. Only files known to the last scan can be served."""
+    rep = SCANNER.report
+    path = rep.by_key.get(key) if rep else None
+    if not path:
+        raise HTTPException(404)
+    with _THUMBS_LOCK:
+        data = _THUMBS.get(key)
+    if data is None:
+        try:
+            from PIL import Image
+            import io
+            with Image.open(path) as im:
+                im.draft("RGB", (480, 480))
+                im.thumbnail((240, 240))
+                buf = io.BytesIO()
+                im.convert("RGB").save(buf, "JPEG", quality=80)
+                data = buf.getvalue()
+        except Exception:
+            raise HTTPException(404, "no preview")
+        with _THUMBS_LOCK:
+            _THUMBS[key] = data
+            while len(_THUMBS) > 400:
+                _THUMBS.popitem(last=False)
+    return Response(data, media_type="image/jpeg",
+                    headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.get("/sessions", response_class=HTMLResponse)
@@ -225,4 +321,5 @@ def api_status():
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": MON.last_error is None, "error": MON.last_error}
+    return {"ok": MON.last_error is None, "error": MON.last_error,
+            "integrity_error": SCANNER.last_error}

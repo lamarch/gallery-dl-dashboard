@@ -44,6 +44,9 @@
       <div class="v">{{ h.disk_media|n }} <small>files</small></div>
       <div class="s">{{ h.disk_bytes|bytes }} of photos</div>
       <div class="s">{% if h.free_bytes is not none %}{{ h.free_bytes|bytes }} free of {{ h.fs_bytes|bytes }}{% endif %}</div>
+      {% if ir %}{% set _c = ir.counts() %}
+      <div class="s"><a href="{{ base }}/integrity">check: {{ _c.get('verified', 0) }}/{{ ir.albums|length }} albums verified{% if _c.get('problems') %} · <span class="t-bad">{{ _c.get('problems') }} with problems</span>{% endif %}</a>{% if ip.phase == 'checking files' %} · scanning {{ ip.done|n }}/{{ ip.total|n }}{% endif %}</div>
+      {% endif %}
     </div>
     <div class="tile">
       <div class="k">Last 24 h</div>

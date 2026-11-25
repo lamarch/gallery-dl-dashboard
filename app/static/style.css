@@ -113,3 +113,21 @@ ul.ids { columns: 3 220px; padding-left: 18px; font-family: var(--mono); font-si
   .grid { grid-template-columns: 1fr 1fr; }
   .tile .v { font-size: 17px; }
 }
+
+/* ---- disk check ---- */
+.vd { font-size: 12px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; background: var(--line); }
+.vd-verified { background: var(--ok-bg); color: var(--ok); font-weight: 600; }
+.vd-problems { background: var(--bad-bg); color: var(--bad); font-weight: 600; }
+.vd-warnings { background: var(--warn-bg); color: var(--warn); }
+.vd-in-progress, .vd-scanning { background: var(--info-bg); color: var(--accent); }
+.small { font-size: 12px; }
+.grid.wide { margin: 12px 0; }
+.btn { font: inherit; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--accent);
+  background: var(--panel); color: var(--accent); cursor: pointer; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.thumb { margin: 0; width: 140px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.thumb img { display: block; width: 140px; height: 105px; object-fit: cover; border-radius: 6px;
+  background: var(--line); border: 1px solid var(--line); }
+.dup { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+.dup-h { font-weight: 600; font-size: 13px; }
+.alert details { margin-top: 6px; color: var(--text); }

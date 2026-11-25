@@ -39,6 +39,7 @@ class AlbumRow:
     disk_bytes: Optional[int] = None
     flags: list = field(default_factory=list)   # (severity, text)
     last_seen: Optional[datetime] = None
+    check: object = None                        # integrity.AlbumCheck, when scanned
 
     @property
     def severity(self) -> str:

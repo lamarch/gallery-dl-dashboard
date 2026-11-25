@@ -1,0 +1,18 @@
+{% macro verdict(ac) -%}
+{%- if ac is none -%}<span class="vd vd-none" title="not scanned yet">–</span>
+{%- else -%}
+{%- set labels = {'verified': '✓ verified', 'problems': '✗ problems', 'warnings': '! warnings', 'scanning': '… scanning', 'in progress': '↻ in progress'} -%}
+<span class="vd vd-{{ ac.verdict|replace(' ', '-') }}">{{ labels.get(ac.verdict, ac.verdict) }}</span>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro thumb(e, base) -%}
+<figure class="thumb">
+  <a href="{{ base }}/thumb/{{ e.key }}" target="_blank" rel="noopener"><img loading="lazy" src="{{ base }}/thumb/{{ e.key }}" alt="" width="120" height="90"></a>
+  <figcaption><bdi dir="auto">{{ e.folder }}</bdi><br><code>{{ e.name }}</code>{% if e.result and e.result.width %}<br>{{ e.result.width }}×{{ e.result.height }} · {{ e.size|bytes }}{% endif %}</figcaption>
+</figure>
+{%- endmacro %}
+
+{% macro fblink(pid, sid) -%}
+<a rel="noreferrer noopener" target="_blank" href="https://www.facebook.com/photo/?fbid={{ pid }}&amp;set={{ sid }}">{{ pid }}</a>
+{%- endmacro %}

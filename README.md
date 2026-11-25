@@ -22,6 +22,16 @@ missing**.
   - albums marked done whose last pass did not reach the end of the album,
   - photos downloaded per the log but missing on disk, `.part` leftovers,
     media without JSON metadata.
+- **Disk check** (read-only, cached, throttled): every photo is opened and
+  fully decoded (truncated/corrupt files, HTML pages saved as photos, AVIF data
+  in a `.jpg`...); every album is checked for gaps with the `num` positions and
+  the `next_photo_id` chain gallery-dl writes in each JSON, which gives the IDs
+  of missing photos even for albums downloaded before the log started; JSON
+  sidecars are checked against filenames and folders; duplicates are found by
+  photo ID, by identical image data (JPEG hashed from the first scan marker, so
+  EXIF rewrites do not hide them) and by visual similarity (thumbnails shown);
+  the download archive is compared with the disk (an archived photo that is
+  gone would never be downloaded again).
 - **Sessions** (one per gallery-dl start): result / exit code, interrupted
   runs (crash, power cut), time spent in each kind of sleep and 429 wait.
 - **Events**: every warning and error, with tracebacks; **Diagnostics**: log
@@ -44,6 +54,7 @@ app/                  the dashboard (FastAPI + Jinja, runs as an unprivileged ui
   status.py           live header (state, ETA, progress) + per-album checks
   disk.py             light read-only disk scan (names, counts, sizes, free space)
   albums.py           albums.txt reader (gallery-dl -I comments finished albums out)
+  integrity.py        deep read-only disk check (decode, completeness, duplicates, archive)
 Dockerfile            builds the dashboard image (only app/ goes in, see .dockerignore)
 tests/                pytest suite, fake-log generator, demo builder
 tools/seed_archive.py fill a gallery-dl download archive from files already on disk
@@ -109,6 +120,11 @@ fbdl.example.com {
 | `LOG_TZ` | `UTC` | timezone of the log timestamps (gallery-dl container time) |
 | `BASE_PATH` | empty | e.g. `/fbdl` when served under a sub-path |
 | `POLL_SECONDS` / `DISK_SCAN_SECONDS` | 2 / 60 | log polling / disk scan intervals |
+| `DATA_DIR` | `/data` | writable folder for the disk-check cache (`integrity.sqlite3`) |
+| `ARCHIVE_FILE` | `/downloads/logs/fb-archive.sqlite3` | gallery-dl download archive (read-only) |
+| `INTEGRITY` | `1` | `0` turns the disk check off |
+| `INTEGRITY_MAX_MBPS` | `40` | disk read cap for the check, in MB/s |
+| `INTEGRITY_RESCAN_SECONDS` | `900` | pause between passes (only changed files are re-read) |
 
 ## Development
 
