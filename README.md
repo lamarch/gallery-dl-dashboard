@@ -39,12 +39,13 @@ missing**.
 ## Layout
 
 ```
-web-dashboard/        the dashboard (FastAPI + Jinja, runs as an unprivileged uid)
-  app/logparse.py     log parser: sessions -> albums -> photos, sleeps, 429s, errors
-  app/status.py       live header (state, ETA, progress) + per-album checks
-  app/disk.py         light read-only disk scan (names, counts, sizes, free space)
-  app/albums.py       albums.txt reader (gallery-dl -I comments finished albums out)
-  tests/              pytest suite, fake-log generator, demo builder
+app/                  the dashboard (FastAPI + Jinja, runs as an unprivileged uid)
+  logparse.py         log parser: sessions -> albums -> photos, sleeps, 429s, errors
+  status.py           live header (state, ETA, progress) + per-album checks
+  disk.py             light read-only disk scan (names, counts, sizes, free space)
+  albums.py           albums.txt reader (gallery-dl -I comments finished albums out)
+Dockerfile            builds the dashboard image (only app/ goes in, see .dockerignore)
+tests/                pytest suite, fake-log generator, demo builder
 tools/seed_archive.py fill a gallery-dl download archive from files already on disk
 deploy/               example compose.yml and gallery-dl.conf
 ```
@@ -71,8 +72,21 @@ See `deploy/`. Three things matter:
 
 ## Deploy
 
+Clone this repo **as the `web-dashboard` folder** next to your `compose.yml`
+(the `webui` service has `build: ./web-dashboard`), once:
+
+```bash
+git clone https://github.com/lamarch/gallery-dl-dashboard.git web-dashboard
+```
+
 ```bash
 docker compose up -d --build webui
+```
+
+Update later (from the compose folder):
+
+```bash
+git -C web-dashboard pull && docker compose up -d --build webui
 ```
 
 Caddy:
@@ -100,11 +114,11 @@ fbdl.example.com {
 
 ```bash
 pip install pytest fastapi uvicorn jinja2
-python3 -m pytest -q web-dashboard/tests tools/tests
+python3 -m pytest -q tests tools/tests
 # archive tests against gallery-dl's own code:
 GALLERY_DL_SRC=/path/to/gallery-dl-checkout python3 -m pytest -q tools/tests
 # demo environment + local server:
-python3 web-dashboard/tests/make_demo.py /tmp/demo
-cd web-dashboard && LOG_FILE=/tmp/demo/logs/fb-dl.log ALBUMS_FILE=/tmp/demo/input/albums.txt \
+python3 tests/make_demo.py /tmp/demo
+LOG_FILE=/tmp/demo/logs/fb-dl.log ALBUMS_FILE=/tmp/demo/input/albums.txt \
   DOWNLOADS_ROOT=/tmp/demo/facebook DISK_PATH=/tmp/demo uvicorn app.main:app --port 8000
 ```

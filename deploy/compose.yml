@@ -20,7 +20,7 @@ services:
         while :; do sleep 3600; done
 
   webui:
-    build: ./web-dashboard
+    build: ./web-dashboard                 # a clone of this repo (git clone ... web-dashboard)
     container_name: fb-dl-dashboard
     restart: unless-stopped
     user: "1000:1000"                       # same uid as fb-dl: can read the log

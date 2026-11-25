@@ -1,0 +1,5 @@
+# Only the app goes into the image (no tests, tools, docs or .git)
+*
+!app
+!requirements.txt
+**/__pycache__
