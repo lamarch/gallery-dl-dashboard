@@ -31,7 +31,11 @@ missing**.
   photo ID, by identical image data (JPEG hashed from the first scan marker, so
   EXIF rewrites do not hide them) and by visual similarity (thumbnails shown);
   the download archive is compared with the disk (an archived photo that is
-  gone would never be downloaded again).
+  gone would never be downloaded again); and the log is compared with the
+  disk: every photo gallery-dl saw must be on disk, and the last pass that
+  reached the end of an album gives its full photo list (this also catches a
+  photo missing at the very end of an album). An album is "verified" when
+  files, JSON and log agree, "verified (disk only)" when it is not in the log.
 - **Sessions** (one per gallery-dl start): result / exit code, interrupted
   runs (crash, power cut), time spent in each kind of sleep and 429 wait.
 - **Events**: every warning and error, with tracebacks; **Diagnostics**: log

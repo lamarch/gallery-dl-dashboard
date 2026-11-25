@@ -199,3 +199,101 @@ def test_new_file_waiting_for_its_json_is_not_flagged(tmp_path):
     s.scan_once()
     a = s.report.albums["a.9"]
     assert "no_json" not in {i.kind for i in a.issues}
+
+
+# ---------------------------------------------------------------------------
+# log vs disk
+# ---------------------------------------------------------------------------
+def _log_state(build):
+    sys.path.insert(0, HERE)
+    from fakelog import FakeLog
+    from app.logparse import LogState
+    from datetime import datetime, timedelta, timezone
+    f = FakeLog((datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"))
+    f.session_start()
+    build(f)
+    st = LogState()
+    for line in f.text().splitlines():
+        st.feed_line(line)
+    return st
+
+
+def test_log_vs_disk(tmp_path):
+    from app.status import log_snapshot
+
+    def build(f):
+        f.job_start("a.5", sleep_extractor=0)
+        f.photo("501").photo("502").photo("503").skipped("504").photo("505").end_chain()
+        f.job_start("a.6", sleep_extractor=0)
+        f.photo("601").photo("602").photo("603").end_chain()
+        f.job_start("a.7", sleep_extractor=0)
+        f.photo("701").jump("701", "999999")
+    st = _log_state(build)
+
+    L = Lib(str(tmp_path / "fb"))
+    # a.5: 504 (skipped as "already had") and 505 (the LAST photo) are gone.
+    # The JSON chain sees 504 (503 -> 504), but only the log can see 505.
+    L.chain("A", "Five", "a.5", ["501", "502", "503", "504", "505"], skip=("504", "505"))
+    L.chain("A", "Six", "a.6", ["601", "602", "603"])
+    L.photo("A", "Six", "a.6", "699", 4)                  # on disk, not in the last full pass
+    L.chain("A", "Seven", "a.7", ["701"])
+    L.chain("A", "Nine", "a.9", ["901", "902"])           # never in the log
+    s = ig.IntegrityScanner(L.root, None, None, max_mbps=1000,
+                            log_snapshot=lambda: log_snapshot(st))
+    s.scan_once()
+    r = s.report.albums
+
+    a5 = r["a.5"]
+    assert sorted(a5.log_not_on_disk) == [("504", "skipped"), ("505", "downloaded")]
+    assert a5.missing_estimate == 2 and set(a5.missing_ids) == {"504", "505"}
+    kinds = {i.kind for i in a5.issues}
+    assert {"log_skipped_missing", "log_downloaded_missing", "missing"} <= kinds
+    assert a5.verdict == "problems" and a5.log_expected == 5
+
+    a6 = r["a.6"]
+    assert a6.log_confirmed and a6.log_extra_on_disk == ["699"]
+    assert a6.verdict == "verified"          # extra photos are only informative
+
+    assert "log_jump" in {i.kind for i in r["a.7"].issues} and r["a.7"].verdict == "warnings"
+
+    a9 = r["a.9"]
+    assert a9.verdict == "verified" and not a9.log_confirmed and a9.log_passes == 0
+
+
+def test_photo_seen_after_the_listing_is_ignored(tmp_path):
+    from app.status import log_snapshot
+    from datetime import datetime, timezone
+    from app.logparse import LogState
+    sys.path.insert(0, HERE)
+    from fakelog import FakeLog
+
+    # log lines written "now", i.e. after the scanner listed the files
+    f = FakeLog(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
+    f.session_start().job_start("a.8", sleep_extractor=0)
+    f.photo("801", ).photo("802")
+    st = LogState()
+    for line in f.text().splitlines():
+        st.feed_line(line)
+    L = Lib(str(tmp_path / "fb"))
+    L.chain("A", "Eight", "a.8", ["801"])
+    s = ig.IntegrityScanner(L.root, None, None, max_mbps=1000,
+                            log_snapshot=lambda: log_snapshot(st))
+    s.scan_once()
+    assert s.report.albums["a.8"].log_not_on_disk == []
+
+
+def test_rebuild_follows_the_log_without_rereading(tmp_path, monkeypatch):
+    from app.status import log_snapshot
+    L = Lib(str(tmp_path / "fb"))
+    L.chain("A", "Six", "a.6", ["601", "602"])
+    state = {"st": _log_state(lambda f: None)}
+    s = ig.IntegrityScanner(L.root, None, None, max_mbps=1000,
+                            log_snapshot=lambda: log_snapshot(state["st"]))
+    s.scan_once()
+    assert s.report.albums["a.6"].log_passes == 0
+    state["st"] = _log_state(lambda f: f.job_start("a.6", sleep_extractor=0)
+                             .photo("601").photo("602").photo("603").end_chain())
+    monkeypatch.setattr(ig, "check_file", lambda *a: (_ for _ in ()).throw(AssertionError("re-read")))
+    s.rebuild()
+    a6 = s.report.albums["a.6"]
+    assert a6.log_passes == 1 and [p for p, _ in a6.log_not_on_disk] == ["603"]

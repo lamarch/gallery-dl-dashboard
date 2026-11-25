@@ -297,3 +297,31 @@ def header(state: LogState, albums: list, disk, now: Optional[datetime] = None) 
 
 def event_counts(state: LogState) -> Counter:
     return Counter(e.kind for e in state.events)
+
+
+_RANK = {"downloaded": 3, "skipped": 3, "missing": 1, "failed": 1, "unknown": 1, "pending": 0}
+
+
+def log_snapshot(state: LogState) -> dict:
+    """Per album: what every pass in the log saw, for the disk check.
+
+    photos: {photo_id: (best status over all passes, last seen as epoch)}
+    last_ids: photo IDs of the last pass, in order.
+    """
+    out: dict = {}
+    for j in state.jobs:
+        if not j.set_id:
+            continue
+        a = out.setdefault(j.set_id, {"passes": 0, "photos": {}, "last_end": None, "last_ids": []})
+        a["passes"] += 1
+        a["last_end"] = j.end_reason
+        a["last_ids"] = list(j.photos)
+        for pid, p in j.photos.items():
+            st = "downloaded" if (p.status == "pending" and p.cdn_ok) else p.status
+            ts = p.last_ts.timestamp()
+            prev = a["photos"].get(pid)
+            if prev is None or _RANK[st] >= _RANK[prev[0]]:
+                a["photos"][pid] = (st, max(ts, prev[1]) if prev else ts)
+            else:
+                a["photos"][pid] = (prev[0], max(ts, prev[1]))
+    return out

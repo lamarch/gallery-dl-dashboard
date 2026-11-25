@@ -9,7 +9,8 @@
 <p class="muted">
   Read-only. Every photo is opened and fully decoded; albums are checked for gaps with the
   <code>num</code> positions and the <code>next_photo_id</code> chain written by gallery-dl.
-  Only new or changed files are re-checked on later passes.
+  Every photo the gallery-dl log saw must be on disk, and the last pass that reached the end of
+  an album gives its full list of photos. Only new or changed files are re-read on later passes.
 </p>
 
 {% if not integrity_on %}<p class="alert warn">The disk check is turned off (INTEGRITY=0).</p>{% endif %}
@@ -65,7 +66,7 @@
   <h3>Albums</h3>
   <div class="tablewrap">
   <table>
-    <thead><tr><th>Check</th><th>Account › Album</th><th class="num">Files</th><th class="num">Positions</th><th>Chain</th><th class="num">Missing</th><th class="num">Damaged</th><th>Issues</th></tr></thead>
+    <thead><tr><th>Check</th><th>Account › Album</th><th class="num">Files</th><th class="num">Positions</th><th>Chain</th><th>Log</th><th class="num">Missing</th><th class="num">Damaged</th><th>Issues</th></tr></thead>
     <tbody>
     {% for a in albums %}
     <tr class="sev-{{ 'bad' if a.verdict == 'problems' else 'warn' if a.verdict == 'warnings' else 'ok' }}">
@@ -74,6 +75,7 @@
       <td class="num">{{ a.checked|n }}/{{ a.media|n }}</td>
       <td class="num">{% if a.max_num %}1–{{ a.max_num }}{% else %}–{% endif %}</td>
       <td>{{ a.chain }}</td>
+      <td class="small">{% if a.log_passes %}{{ a.log_passes }} pass(es) · {{ END_REASONS.get(a.log_end, a.log_end) }}{% if a.log_expected is not none %}<br>{{ a.log_expected }} photos in last full pass{% endif %}{% else %}<span class="muted">not in log</span>{% endif %}</td>
       <td class="num">{% if a.missing_estimate %}<b class="t-bad">{{ a.missing_estimate }}</b>{% else %}0{% endif %}</td>
       <td class="num">{% if a.bad_files %}<b class="t-bad">{{ a.bad_files|length }}</b>{% else %}0{% endif %}</td>
       <td class="flags">{% for i in a.issues %}<div class="t-{{ i.severity }}">{{ i.text }}</div>{% endfor %}</td>

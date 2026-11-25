@@ -2,7 +2,7 @@
 {%- if ac is none -%}<span class="vd vd-none" title="not scanned yet">–</span>
 {%- else -%}
 {%- set labels = {'verified': '✓ verified', 'problems': '✗ problems', 'warnings': '! warnings', 'scanning': '… scanning', 'in progress': '↻ in progress'} -%}
-<span class="vd vd-{{ ac.verdict|replace(' ', '-') }}">{{ labels.get(ac.verdict, ac.verdict) }}</span>
+<span class="vd vd-{{ ac.verdict|replace(' ', '-') }}" title="{{ 'files, JSON and log agree' if ac.log_confirmed else 'no complete pass of this album in the log: checked against the disk only' }}">{{ labels.get(ac.verdict, ac.verdict) }}{% if ac.verdict == 'verified' and not ac.log_confirmed %} (disk only){% endif %}</span>
 {%- endif -%}
 {%- endmacro %}
 

@@ -33,6 +33,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .logparse import END_OK, END_REASONS
+
 try:
     from PIL import Image, features
     Image.MAX_IMAGE_PIXELS = 300_000_000
@@ -409,6 +411,18 @@ class AlbumCheck:
     first_missing: bool = False
     archived_missing: list = field(default_factory=list)
     not_archived: int = 0
+    # what the gallery-dl log says about this album
+    log_passes: int = 0
+    log_end: Optional[str] = None          # end reason of the last pass
+    log_seen: int = 0                      # distinct photo IDs seen in all passes
+    log_expected: Optional[int] = None     # photos in the last pass that reached the end
+    log_not_on_disk: list = field(default_factory=list)   # [(photo_id, log status)]
+    log_extra_on_disk: list = field(default_factory=list)  # on disk, not in last full pass
+
+    @property
+    def log_confirmed(self) -> bool:
+        """The last pass in the log reached the end of the album."""
+        return self.log_passes > 0 and self.log_end in END_OK
 
     @property
     def scanned(self) -> bool:
@@ -493,7 +507,11 @@ def read_archive(path: Optional[str]):
 
 def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: list[FileEntry],
                  archive: Optional[set], archive_error: Optional[str],
-                 current_set: Optional[str], started: float, now: float) -> Report:
+                 current_set: Optional[str], started: float, now: float,
+                 log: Optional[dict] = None) -> Report:
+    """`log`: {set_id: {"passes", "last_end", "last_ids", "photos": {id: (status, ts)}}}
+    as built by status.log_snapshot(). `started` is when the files were listed:
+    photos the log saw after that cannot be on the list yet and are ignored."""
     rep = Report(started=started)
     rep.files = len(entries)
     rep.archive_entries = len(archive) if archive is not None else None
@@ -601,19 +619,7 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
                 a.first_missing = True
                 if f not in a.missing_ids:
                     a.missing_ids.insert(0, f)
-        gap_count = sum(b - s + 1 for s, b in a.num_gaps)
-        a.missing_estimate = max(gap_count, len(a.missing_ids))
-        if a.missing_estimate:
-            known = len(a.missing_ids)
-            txt = f"{a.missing_estimate} photo(s) missing from this album"
-            if a.num_gaps:
-                txt += " (positions " + ", ".join(
-                    f"{s}" if s == b else f"{s}–{b}" for s, b in a.num_gaps[:8]) + \
-                    ("…" if len(a.num_gaps) > 8 else "") + ")"
-            if known:
-                txt += f"; {known} ID(s) known"
-            a.issues.append(Issue("bad", "missing", txt))
-        elif not nums and not any(m.next_id for m in metas) and metas:
+        if not nums and not any(m.next_id for m in metas) and metas:
             a.issues.append(Issue("info", "no_order", "no position data in JSON: completeness cannot be proven"))
 
         # ---- archive ------------------------------------------------------------
@@ -636,6 +642,78 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
             a.issues.append(Issue("bad", "archived_missing",
                                   f"{len(pids)} photo(s) in the archive but not on disk: "
                                   f"gallery-dl will NOT download them again"))
+
+    # ---- log vs disk -----------------------------------------------------------
+    disk_ids = {sid: {e.photo_id for e in es if e.photo_id} for sid, es in groups.items()}
+    for sid, L in (log or {}).items():
+        if not sid:
+            continue
+        a = album(sid)
+        a.log_passes = L["passes"]
+        a.log_end = L["last_end"]
+        a.log_seen = len(L["photos"])
+        have = disk_ids.get(sid, set())
+        in_prog = sid == current_set
+        if in_prog:
+            a.in_progress = True
+        for pid, (st, ts) in L["photos"].items():
+            if pid in have or ts > started - 60:
+                continue
+            if st == "pending" and in_prog:
+                continue
+            a.log_not_on_disk.append((pid, st))
+        by_st = defaultdict(list)
+        for pid, st in a.log_not_on_disk:
+            by_st[st].append(pid)
+        if by_st["downloaded"]:
+            a.issues.append(Issue("bad", "log_downloaded_missing",
+                                  f"{len(by_st['downloaded'])} photo(s) downloaded per the log but not on disk"))
+        if by_st["skipped"]:
+            a.issues.append(Issue("bad", "log_skipped_missing",
+                                  f"{len(by_st['skipped'])} photo(s) gallery-dl skipped as already "
+                                  f"downloaded (file or archive), but not on disk"))
+        failed = by_st["missing"] + by_st["failed"] + by_st["unknown"]
+        if failed:
+            a.issues.append(Issue("bad", "log_failed",
+                                  f"{len(failed)} photo(s) gallery-dl could not download (see Events)"))
+        if by_st["pending"]:
+            a.issues.append(Issue("warn", "log_pending",
+                                  f"{len(by_st['pending'])} photo(s) seen by gallery-dl but the pass "
+                                  f"stopped before downloading them"))
+        if in_prog or a.log_end == "running":
+            continue
+        if a.log_end in END_OK:
+            a.log_expected = len(L["last_ids"])
+            extra = have - set(L["last_ids"])
+            a.log_extra_on_disk = sorted(extra)
+            if extra:
+                a.issues.append(Issue("info", "log_extra",
+                                      f"{len(extra)} photo(s) on disk were not seen in the last full "
+                                      f"pass (removed from Facebook since, or moved to another album)"))
+        elif a.log_end == "jump":
+            a.issues.append(Issue("warn", "log_jump",
+                                  "last pass stopped by gallery-dl's 'jump' heuristic: "
+                                  "the end of the album is not confirmed"))
+        else:
+            a.issues.append(Issue("warn", "log_incomplete",
+                                  f"last pass did not reach the end of the album "
+                                  f"({END_REASONS.get(a.log_end, a.log_end)})"))
+
+    # ---- missing photos: JSON positions/chain + log --------------------------------
+    for a in rep.albums.values():
+        known = list(dict.fromkeys(a.missing_ids + [pid for pid, _ in a.log_not_on_disk]))
+        a.missing_ids = known
+        gap_count = sum(b - s + 1 for s, b in a.num_gaps)
+        a.missing_estimate = max(gap_count, len(known))
+        if a.missing_estimate:
+            txt = f"{a.missing_estimate} photo(s) missing from this album"
+            if a.num_gaps:
+                txt += " (positions " + ", ".join(
+                    f"{s}" if s == b else f"{s}–{b}" for s, b in a.num_gaps[:8]) + \
+                    ("…" if len(a.num_gaps) > 8 else "") + ")"
+            if known:
+                txt += f"; {len(known)} ID(s) known"
+            a.issues.append(Issue("bad", "missing", txt))
 
     # ---- orphans --------------------------------------------------------------
     for e in json_only:
@@ -714,7 +792,8 @@ def find_similar(entries, exclude: set) -> list:
 class IntegrityScanner:
     def __init__(self, root: str, cache_path: Optional[str], archive_path: Optional[str],
                  max_mbps: float = 40.0, rescan_every: float = 900.0,
-                 current_set=lambda: None, clock=time.time):
+                 current_set=lambda: None, clock=time.time, log_snapshot=None,
+                 rebuild_every: float = 60.0):
         self.root = root
         self.cache = Cache(cache_path)
         self.archive_path = archive_path
@@ -722,6 +801,9 @@ class IntegrityScanner:
         self.rescan_every = rescan_every
         self.current_set = current_set
         self.clock = clock
+        self.log_snapshot = log_snapshot
+        self.rebuild_every = rebuild_every
+        self._last_lists = None
         self.report: Optional[Report] = None
         self.progress = {"phase": "waiting", "done": 0, "total": 0, "started": None, "passes": 0}
         self.lock = threading.Lock()
@@ -737,8 +819,22 @@ class IntegrityScanner:
             except Exception as e:  # keep the dashboard alive
                 self.last_error = f"{e.__class__.__name__}: {e}"
             self.progress["phase"] = "idle"
-            self.poke.wait(self.rescan_every)
+            # between passes, refresh the report every minute from the latest log
+            # (no file is re-read)
+            deadline = time.time() + self.rescan_every
+            while not self.stop.is_set() and time.time() < deadline:
+                if self.poke.wait(min(self.rebuild_every, max(0.0, deadline - time.time()))):
+                    break
+                try:
+                    self.rebuild()
+                except Exception as e:
+                    self.last_error = f"{e.__class__.__name__}: {e}"
             self.poke.clear()
+
+    def rebuild(self):
+        """Re-compare the last file listing with the current log."""
+        if self._last_lists is not None:
+            self._publish(*self._last_lists, partial=False)
 
     def _walk(self):
         media, json_only, other = [], [], []
@@ -811,6 +907,7 @@ class IntegrityScanner:
         self.cache.forget_missing({e.path for e in media})
         self._meta_cache = new_meta_cache
         p["phase"] = "comparing"
+        self._last_lists = (media, json_only, other, started)
         self._publish(media, json_only, other, started, partial=False)
         p["passes"] += 1
 
@@ -821,8 +918,9 @@ class IntegrityScanner:
         if partial and self.report is not None and self.report.finished and not self.report.partial:
             return   # keep showing the last complete pass while re-checking
         archive, aerr = read_archive(self.archive_path)
+        log = self.log_snapshot() if self.log_snapshot else None
         rep = build_report(media, json_only, other, archive, aerr,
-                           self.current_set(), started, self.clock())
+                           self.current_set(), started, self.clock(), log)
         rep.partial = partial
         with self.lock:
             self.report = rep

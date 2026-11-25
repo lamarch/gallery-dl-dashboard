@@ -19,7 +19,7 @@ from . import albums as albums_mod
 from . import disk as disk_mod
 from .integrity import IntegrityScanner
 from .logparse import END_REASONS, LogTail, decode_exit, set_log_tz
-from .status import AlbumRow, album_rows, event_counts, header
+from .status import AlbumRow, album_rows, event_counts, header, log_snapshot
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CFG = {
@@ -99,8 +99,14 @@ def _locked_current_set():
 
 _cache_path = (os.path.join(CFG["data_dir"], "integrity.sqlite3")
                if os.path.isdir(CFG["data_dir"]) and os.access(CFG["data_dir"], os.W_OK) else None)
+def _locked_log_snapshot():
+    with MON.lock:
+        return log_snapshot(MON.tail.state)
+
+
 SCANNER = IntegrityScanner(CFG["downloads_root"], _cache_path, CFG["archive_file"],
-                           CFG["integrity_mbps"], CFG["integrity_every"], _locked_current_set)
+                           CFG["integrity_mbps"], CFG["integrity_every"], _locked_current_set,
+                           log_snapshot=_locked_log_snapshot)
 
 
 @asynccontextmanager

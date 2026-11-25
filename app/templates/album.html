@@ -22,6 +22,7 @@
     <div><dt>Files checked</dt><dd>{{ ac.checked|n }}/{{ ac.media|n }} · {{ ac.bytes|bytes }}</dd></div>
     <div><dt>Positions (num)</dt><dd>{% if ac.max_num %}1–{{ ac.max_num }}{% if ac.num_gaps %} · <span class="t-bad">gaps: {% for s, e in ac.num_gaps %}{{ s if s == e else s ~ '–' ~ e }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% else %} · no gap{% endif %}{% else %}no position data{% endif %}</dd></div>
     <div><dt>Photo chain (next_photo_id)</dt><dd>{{ ac.chain }}</dd></div>
+    <div><dt>Log</dt><dd>{% if ac.log_passes %}{{ ac.log_passes }} pass(es), last: {{ END_REASONS.get(ac.log_end, ac.log_end) }} · {{ ac.log_seen }} photo(s) seen{% if ac.log_expected is not none %} · last full pass: {{ ac.log_expected }}, on disk: {{ ac.media }}{% endif %}{% else %}not in the current log: checked against the disk only{% endif %}</dd></div>
     <div><dt>Folder(s)</dt><dd>{% for f in ac.folders %}<bdi dir="auto">{{ f }}</bdi>{% if not loop.last %}<br>{% endif %}{% endfor %}</dd></div>
     {% if ir and ir.archive_entries is not none %}<div><dt>Archive</dt><dd>{{ ac.media - ac.not_archived }} archived · {{ ac.not_archived }} not archived{% if ac.archived_missing %} · <span class="t-bad">{{ ac.archived_missing|length }} archived but missing</span>{% endif %}</dd></div>{% endif %}
   </dl>
@@ -33,6 +34,14 @@
   {% if ac.missing_ids %}
   <p>Known IDs of missing photos (open on Facebook to check):</p>
   <ul class="ids">{% for pid in ac.missing_ids %}<li>{{ fblink(pid, ac.set_id) }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if ac.log_not_on_disk %}
+  <p>Seen in the log but not on disk:</p>
+  <ul class="ids">{% for pid, st in ac.log_not_on_disk %}<li>{{ fblink(pid, ac.set_id) }} <span class="t-bad">{{ {'downloaded': 'downloaded, file gone', 'skipped': 'skipped as already had', 'missing': 'no download URL', 'failed': 'download failed', 'unknown': 'download unfinished', 'pending': 'not downloaded yet'}.get(st, st) }}</span></li>{% endfor %}</ul>
+  {% endif %}
+  {% if ac.log_extra_on_disk %}
+  <details><summary>{{ ac.log_extra_on_disk|length }} photo(s) on disk not seen in the last full pass</summary>
+  <ul class="ids">{% for pid in ac.log_extra_on_disk %}<li>{{ fblink(pid, ac.set_id) }}</li>{% endfor %}</ul></details>
   {% endif %}
   {% if ac.archived_missing %}
   <p>In the archive but not on disk (gallery-dl will skip them):</p>
