@@ -1,0 +1,54 @@
+<header class="live state-{{ h.state }}">
+  <div class="row1">
+    <span class="badge state-{{ h.state }}">{{ h.label }}</span>
+    {% if h.until %}<span class="count">until {{ h.until|dt('%H:%M:%S') }} · <b data-until="{{ (h.until.timestamp()*1000)|int }}">{{ (h.until - now).total_seconds()|dur }}</b> left</span>{% endif %}
+    {% if h.detail %}<span class="muted">{{ h.detail }}</span>{% endif %}
+    <span class="spacer"></span>
+    <span class="muted">last log line <b data-ago="{{ (h.last_line.timestamp()*1000)|int if h.last_line else '' }}">{{ h.last_line|ago(now) }}</b></span>
+  </div>
+  <div class="row2">
+    {% if h.set_id %}
+    <a class="where" href="{{ base }}/album/{{ h.set_id }}">
+      <bdi dir="auto">{{ h.account or 'account ?' }}</bdi> › <bdi dir="auto" class="strong">{{ h.title or ('album ' ~ h.set_id) }}</bdi>
+    </a>
+    {% if h.pos %}<span class="muted">album {{ h.pos }}/{{ h.total }}</span>{% endif %}
+    {% else %}<span class="muted">no album yet</span>{% endif %}
+  </div>
+  <div class="grid">
+    <div class="tile">
+      <div class="k">This album</div>
+      <div class="v">{{ h.album_seen|n }} <small>photos seen{% if h.album_expected %} / {{ h.album_expected|n }} expected{% endif %}</small></div>
+      <div class="s">{{ h.album_downloaded|n }} new · {{ h.album_skipped|n }} already had{% if h.album_missing %} · <span class="t-bad">{{ h.album_missing }} missing</span>{% endif %} · {{ h.album_bytes|bytes }}</div>
+      <div class="s">{% if h.album_errors %}<span class="t-bad">{{ h.album_errors }} error(s)</span>{% else %}0 errors{% endif %} · {{ h.album_retries }} retries</div>
+    </div>
+    <div class="tile">
+      <div class="k">Progress</div>
+      <div class="v">{{ h.done }}<small>/{{ h.total }} albums done</small></div>
+      {% if h.total %}<div class="bar"><i style="width:{{ (100*h.done/h.total)|round(1) }}%"></i></div>{% endif %}
+      <div class="s">{{ h.photos_last_hour }} photos in the last hour</div>
+    </div>
+    <div class="tile">
+      <div class="k">ETA</div>
+      <div class="v">{% if h.eta_seconds is not none %}~{{ h.eta_seconds|dur }}{% else %}–{% endif %}</div>
+      <div class="s">{% if h.eta_pause_seconds %}incl. {{ h.eta_pause_seconds|dur }} of 1 h pauses{% endif %}</div>
+      <div class="s">{% if h.spp %}{{ h.spp|round(1) }} s/photo · ~{{ h.avg_album|round(0)|int }} photos/album{% endif %}</div>
+    </div>
+    <div class="tile">
+      <div class="k">Downloaded</div>
+      <div class="v">{{ h.session_bytes|bytes }} <small>this session</small></div>
+      <div class="s">{{ h.downloaded_bytes|bytes }} in the whole log</div>
+      <div class="s">session #{{ h.session_no }} since {{ h.session_start|dt('%d/%m %H:%M') }} · archive {% if h.archive %}<span class="t-ok">on</span>{% elif h.archive is sameas false %}<span class="t-bad">FAILED</span>{% else %}<span class="muted">not seen yet</span>{% endif %}</div>
+    </div>
+    <div class="tile">
+      <div class="k">On disk</div>
+      <div class="v">{{ h.disk_media|n }} <small>files</small></div>
+      <div class="s">{{ h.disk_bytes|bytes }} of photos</div>
+      <div class="s">{% if h.free_bytes is not none %}{{ h.free_bytes|bytes }} free of {{ h.fs_bytes|bytes }}{% endif %}</div>
+    </div>
+    <div class="tile">
+      <div class="k">Last 24 h</div>
+      <div class="v">{{ h.waits_24h }} <small>rate-limit waits</small></div>
+      <div class="s">{% if h.problems_24h %}<a class="t-bad" href="{{ base }}/events?sev=bad">{{ h.problems_24h }} serious problem(s)</a>{% else %}no serious problems{% endif %}</div>
+    </div>
+  </div>
+</header>

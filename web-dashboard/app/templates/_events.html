@@ -1,0 +1,19 @@
+{% set list = evs if evs is defined else recent %}
+{% if list %}
+<div class="tablewrap">
+<table class="events">
+  <thead><tr><th>Time</th><th>Kind</th><th>Album</th><th>Photo</th><th>Message</th></tr></thead>
+  <tbody>
+  {% for e in list %}
+  <tr class="sev-{{ e.severity }}">
+    <td class="nowrap">{{ e.ts|dt('%d/%m %H:%M:%S') }}</td>
+    <td><span class="kind k-{{ e.severity }}">{{ e.kind }}</span></td>
+    <td>{% if e.set_id %}<a href="{{ base }}/album/{{ e.set_id }}">{{ e.set_id }}</a>{% else %}–{% endif %}</td>
+    <td>{{ e.photo_id or '–' }}</td>
+    <td class="msg">{{ e.message }}{% if e.details %}<details><summary>{{ e.details|length }} more line(s)</summary><pre>{{ e.details|join('\n') }}</pre></details>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}<p class="muted">Nothing to report.</p>{% endif %}

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>{% block title %}fb-dl dashboard{% endblock %}</title>
+<link rel="stylesheet" href="{{ base }}/static/style.css">
+</head>
+<body>
+<nav class="top">
+  <a class="brand" href="{{ base }}/">fb-dl</a>
+  <a href="{{ base }}/" {% if page == 'albums' %}aria-current="page"{% endif %}>Albums</a>
+  <a href="{{ base }}/sessions" {% if page == 'sessions' %}aria-current="page"{% endif %}>Sessions</a>
+  <a href="{{ base }}/events" {% if page == 'events' %}aria-current="page"{% endif %}>Events{% if bad_events %} <span class="pill bad">{{ bad_events }}</span>{% endif %}</a>
+  <a href="{{ base }}/diagnostics" {% if page == 'diagnostics' %}aria-current="page"{% endif %}>Diagnostics</a>
+  <span class="tz">times in {{ tzname }}</span>
+</nav>
+<div id="hdr" data-src="{{ base }}/fragment/header">{% include "_header.html" %}</div>
+<main>
+{% block content %}{% endblock %}
+</main>
+<script src="{{ base }}/static/app.js"></script>
+</body>
+</html>

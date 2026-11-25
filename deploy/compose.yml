@@ -1,0 +1,42 @@
+services:
+  fb-dl:
+    container_name: fb-dl
+    image: gallery-dl:latest
+    restart: unless-stopped            # comes back after a power cut...
+    init: true                         # (forwards stop signals properly)
+    user: "1000:1000"
+    volumes:
+      - ./downloads:/downloads
+      - ./config:/config
+      - ./input:/input                 # albums.txt lives here now (gallery-dl rewrites it)
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      # ...but runs gallery-dl only once per start: when it is done, it logs
+      # its exit code for the dashboard and idles instead of looping.
+      - |
+        gallery-dl -c /config/gallery-dl.conf -I /input/albums.txt --verbose
+        rc=$$?
+        echo "[$$(date -u '+%Y-%m-%d %H:%M:%S')] [wrapper][info] gallery-dl exited with code $$rc" >> /downloads/logs/fb-dl.log
+        while :; do sleep 3600; done
+
+  webui:
+    build: ./web-dashboard
+    container_name: fb-dl-dashboard
+    restart: unless-stopped
+    user: "1000:1000"                       # same uid as fb-dl: can read the log
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      LOG_FILE: /downloads/logs/fb-dl.log   # output.logfile.path from config/gallery-dl.conf
+      ALBUMS_FILE: /input/albums.txt        # the -I input file
+      DISPLAY_TZ: "UTC"                     # IANA timezone used to display times (log timestamps are UTC)
+    volumes:
+      - ./downloads:/downloads:ro         # same mount as fb-dl, read-only
+      - ./input:/input:ro                   # folder mount: sees albums.txt rewrites
+      - ./dashboard-data:/data              # dashboard database + album-names.tsv
+    networks:
+      - caddy
+
+networks:
+  caddy:
+    external: true

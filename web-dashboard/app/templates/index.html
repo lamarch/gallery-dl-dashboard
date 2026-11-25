@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+{% if albums_error %}<p class="alert bad">{{ albums_error }}</p>{% endif %}
+{% if flagged %}
+<section class="alert {{ 'bad' if flagged|selectattr('severity','equalto','bad')|list else 'warn' }}">
+  <b>{{ flagged|length }} album(s) need attention.</b>
+  <a href="#" data-filter="problem">Show them</a>
+</section>
+{% endif %}
+
+<section>
+  <div class="toolbar">
+    <h2>Albums</h2>
+    <div class="filters" role="group" aria-label="Filter albums">
+      <button data-filter="all" aria-pressed="true">All <span>{{ rows|length }}</span></button>
+      <button data-filter="problem">Problems <span>{{ flagged|length }}</span></button>
+      <button data-filter="pending">Pending <span>{{ rows|selectattr('state','equalto','pending')|list|length }}</span></button>
+      <button data-filter="done">Done <span>{{ rows|selectattr('state','equalto','done')|list|length }}</span></button>
+    </div>
+  </div>
+  <div class="tablewrap">
+  <table class="albums">
+    <thead><tr>
+      <th>#</th><th>Status</th><th>Account › Album</th><th class="num">Passes</th><th>Last pass</th>
+      <th class="num" title="in the last pass: downloaded / already had">Log new/had</th>
+      <th class="num">Missing</th><th class="num">On disk</th><th class="num">Size</th><th>Flags</th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr class="sev-{{ r.severity }}" data-state="{{ r.state }}" data-problem="{{ 'yes' if r.severity in ('bad','warn') else 'no' }}">
+      <td class="num">{{ r.pos or '–' }}</td>
+      <td><span class="st st-{{ r.state }}">{{ r.state }}</span></td>
+      <td class="name">{% if r.set_id %}<a href="{{ base }}/album/{{ r.set_id }}">{% endif %}
+        {% if r.title %}<bdi dir="auto" class="muted">{{ r.account or '?' }}</bdi> › <bdi dir="auto">{{ r.title }}</bdi>{% else %}<span class="muted">not on disk yet</span>{% endif %}
+        {% if r.set_id %}</a>{% endif %}<div class="sid">{{ r.set_id or 'no set id' }}</div></td>
+      <td class="num">{{ r.passes }}</td>
+      <td>{{ r.end_label or '–' }}</td>
+      <td class="num">{% if r.passes %}{{ r.downloaded|n }} / {{ r.skipped|n }}{% else %}–{% endif %}</td>
+      <td class="num">{% if r.missing %}<b class="t-bad">{{ r.missing|length }}</b>{% else %}0{% endif %}</td>
+      <td class="num">{{ r.disk_media|n }}</td>
+      <td class="num">{{ r.disk_bytes|bytes }}</td>
+      <td class="flags">{% for sev, txt in r.flags %}<div class="t-{{ sev }}">{{ txt }}</div>{% endfor %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>Recent warnings &amp; problems <a class="more" href="{{ base }}/events">all events →</a></h2>
+  {% include "_events.html" with context %}
+</section>
+{% endblock %}

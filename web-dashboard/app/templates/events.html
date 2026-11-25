@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Events · fb-dl{% endblock %}
+{% block content %}
+<h2>Events</h2>
+<form class="filterform" method="get">
+  <label>Severity
+    <select name="sev">
+      <option value="" {% if not sev %}selected{% endif %}>all</option>
+      <option value="bad" {% if sev == 'bad' %}selected{% endif %}>serious</option>
+      <option value="warn" {% if sev == 'warn' %}selected{% endif %}>warnings</option>
+      <option value="info" {% if sev == 'info' %}selected{% endif %}>info</option>
+    </select></label>
+  <label>Kind
+    <select name="kind">
+      <option value="">all</option>
+      {% for k, n in counts.most_common() %}<option value="{{ k }}" {% if kind == k %}selected{% endif %}>{{ k }} ({{ n }})</option>{% endfor %}
+    </select></label>
+  <button>Filter</button>
+</form>
+{% include "_events.html" with context %}
+{% endblock %}

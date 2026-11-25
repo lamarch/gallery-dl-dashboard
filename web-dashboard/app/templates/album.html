@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ row.title or row.set_id }} · fb-dl{% endblock %}
+{% block content %}
+<p><a href="{{ base }}/">← all albums</a></p>
+<h2><bdi dir="auto" class="muted">{{ row.account or '?' }}</bdi> › <bdi dir="auto">{{ row.title or row.set_id }}</bdi></h2>
+<dl class="facts">
+  <div><dt>Album ID</dt><dd>{{ row.set_id }}</dd></div>
+  <div><dt>Position in albums.txt</dt><dd>{{ row.pos or 'not listed' }}</dd></div>
+  <div><dt>Status</dt><dd><span class="st st-{{ row.state }}">{{ row.state }}</span></dd></div>
+  <div><dt>Folder</dt><dd><bdi dir="auto">{{ row.folder or 'not on disk yet' }}</bdi></dd></div>
+  <div><dt>On disk</dt><dd>{{ row.disk_media|n }} files · {{ row.disk_bytes|bytes }}{% if d and d.part %} · {{ d.part }} .part{% endif %}{% if d and (d.media_without_json or d.json_without_media) %} · {{ d.media_without_json }} without JSON, {{ d.json_without_media }} JSON without file{% endif %}</dd></div>
+  <div><dt>Passes</dt><dd>{{ row.passes }}</dd></div>
+</dl>
+
+{% if row.flags %}<section>{% for sev, txt in row.flags %}<p class="alert {{ sev }}">{{ txt }}</p>{% endfor %}</section>{% endif %}
+
+{% if row.missing or row.failed %}
+<section>
+  <h3>Photos to recover</h3>
+  <p class="muted">Not on disk. Open one to check it on Facebook; to re-download, uncomment this album in albums.txt.</p>
+  <ul class="ids">
+  {% for pid in row.missing %}<li><a rel="noreferrer noopener" target="_blank" href="https://www.facebook.com/photo/?fbid={{ pid }}&amp;set={{ row.set_id }}">{{ pid }}</a> <span class="t-bad">no download URL</span></li>{% endfor %}
+  {% for pid in row.failed %}<li><a rel="noreferrer noopener" target="_blank" href="https://www.facebook.com/photo/?fbid={{ pid }}&amp;set={{ row.set_id }}">{{ pid }}</a> <span class="t-bad">download failed</span></li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section>
+  <h3>Passes</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Session</th><th>Started</th><th>Ended</th><th>Result</th><th class="num">Seen</th><th class="num">New</th><th class="num">Had</th><th class="num">Missing</th><th class="num">429 waits</th><th class="num">Downloaded</th><th>Archive</th></tr></thead>
+    <tbody>
+    {% for j in jobs %}{% set c = j.counts() %}
+    <tr>
+      <td>#{{ j.session + 1 }}</td><td class="nowrap">{{ j.start|dt('%d/%m %H:%M') }}</td><td class="nowrap">{{ j.end|dt('%d/%m %H:%M') }}</td>
+      <td>{{ END_REASONS.get(j.end_reason, j.end_reason) }}</td>
+      <td class="num">{{ j.photos|length }}</td><td class="num">{{ c['downloaded'] }}</td><td class="num">{{ c['skipped'] }}</td>
+      <td class="num">{{ c['missing'] }}</td><td class="num">{{ j.waits_429 }}</td><td class="num">{{ j.bytes|bytes }}</td>
+      <td>{{ 'on' if j.archive else ('failed' if j.archive is sameas false else '–') }}</td>
+    </tr>
+    {% else %}<tr><td colspan="11" class="muted">Not processed in the current log.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h3>Events for this album</h3>
+  {% set evs = events %}{% include "_events.html" with context %}
+</section>
+{% endblock %}

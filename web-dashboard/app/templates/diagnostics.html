@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Diagnostics · fb-dl{% endblock %}
+{% block content %}
+<h2>Diagnostics</h2>
+<dl class="facts">
+  <div><dt>Log file</dt><dd>{{ cfg.log_file }} · {{ tail.size|bytes }} · read up to byte {{ tail.offset|n }}{% if tail.resets %} · re-read {{ tail.resets }}× (rotated/truncated){% endif %}</dd></div>
+  <div><dt>Lines</dt><dd>{{ st.lines|n }} · first {{ st.first_ts|dt }} · last {{ st.last_ts|dt }}</dd></div>
+  <div><dt>Broken-format lines</dt><dd>{{ st.bad_format_lines }} <span class="muted">('[%(asctime)s]…' written by an older config; their content is lost)</span></dd></div>
+  <div><dt>Orphan lines</dt><dd>{{ st.orphan_lines }}</dd></div>
+  <div><dt>albums.txt</dt><dd>{{ cfg.albums_file }}{% if albums_error %} · <span class="t-bad">{{ albums_error }}</span>{% endif %}</dd></div>
+  <div><dt>Disk scan</dt><dd>{{ cfg.downloads_root }}{% if disk %} · {{ disk.albums|length }} album folders · took {{ disk.duration|round(2) }} s{% if disk.error %} · <span class="t-bad">{{ disk.error }}</span>{% endif %}{% endif %}</dd></div>
+  <div><dt>Monitor</dt><dd>{{ mon.last_error or 'ok' }}</dd></div>
+</dl>
+<h3>Unrecognized log lines</h3>
+<p class="muted">Messages the parser does not know yet, as privacy-safe templates (numbers → N, quoted text → &lt;Q&gt;). You can paste this table to Claude.</p>
+{% if unrec %}
+<div class="tablewrap"><table><thead><tr><th class="num">Count</th><th>Template</th></tr></thead><tbody>
+{% for t, n in unrec %}<tr><td class="num">{{ n }}</td><td class="msg"><code>{{ t }}</code></td></tr>{% endfor %}
+</tbody></table></div>
+{% else %}<p>None. Every line is understood.</p>{% endif %}
+{% endblock %}

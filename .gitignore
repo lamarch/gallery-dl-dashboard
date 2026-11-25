@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+*.tar.gz
+# runtime data: never commit
+downloads/
+input/
+config/fb-cookies.txt
+dashboard-data/
+seed-out/
+*.sqlite3
+*.log
