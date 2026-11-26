@@ -20,6 +20,7 @@
       <div class="v">{{ h.album_seen|n }} <small>photos seen{% if h.album_expected %} / {{ h.album_expected|n }} expected{% endif %}</small></div>
       <div class="s">{{ h.album_downloaded|n }} new · {{ h.album_skipped|n }} already had{% if h.album_missing %} · <span class="t-bad">{{ h.album_missing }} missing</span>{% endif %} · {{ h.album_bytes|bytes }}</div>
       <div class="s">{% if h.album_errors %}<span class="t-bad">{{ h.album_errors }} error(s)</span>{% else %}0 errors{% endif %} · {{ h.album_retries }} retries</div>
+      {% if h.album_eta_at %}<div class="s">album done ≈ {{ h.album_eta_at|dt('%H:%M') }} (<b data-until="{{ (h.album_eta_at.timestamp()*1000)|int }}">{{ h.album_eta_seconds|dur }}</b>)</div>{% endif %}
     </div>
     <div class="tile">
       <div class="k">Progress</div>

@@ -260,8 +260,14 @@ def static_url(name: str) -> str:
     return f"{CFG['base']}/static/{name}?v={STATIC_V.get(name, '0')}"
 
 
+def album_title(set_id, fallback=None):
+    """Facebook's title when an albums page was imported (gallery-dl's title
+    can be badly decoded), else the fallback."""
+    return FBSTORE.titles().get(set_id) or fallback or set_id
+
+
 templates.env.globals.update(fixorder_cmd=fixorder_cmd, albumprops_cmd=albumprops_cmd,
-                             static_url=static_url)
+                             static_url=static_url, album_title=album_title)
 templates.env.globals.update(base=CFG["base"], END_REASONS=END_REASONS, decode_exit=decode_exit,
                              tzname=str(DISPLAY_TZ))
 
@@ -272,6 +278,8 @@ def ctx(request, **kw):
     with MON.lock:
         st = MON.tail.state
         h = header(st, MON.albums, MON.disk, now, acked=acked, fb=FBSTORE.counts())
+        if h.set_id:
+            h.title = FBSTORE.titles().get(h.set_id) or h.title
         kw.update(ir=SCANNER.report, ip=SCANNER.progress, scanner=SCANNER,
                   integrity_on=CFG["integrity"])
         kw.update(request=request, h=h, now=now, st=st, mon=MON, tail=MON.tail,
@@ -291,7 +299,10 @@ def attach_checks(rows, flags=True):
         if not flags or ac is None or ac.verdict not in ("problems", "warnings"):
             continue
         sev = "bad" if ac.verdict == "problems" else "warn"
-        texts = [i.text for i in ac.issues if i.severity == sev]
+        # the Facebook count is shown in its own column ("Expected")
+        texts = [i.text for i in ac.issues if i.severity == sev and i.kind != "fb_count"]
+        if not texts:
+            continue
         r.flags.append((sev, "disk check: " + "; ".join(texts[:3]) + ("…" if len(texts) > 3 else "")))
     return rows
 
@@ -300,7 +311,8 @@ def attach_checks(rows, flags=True):
 def index(request: Request):
     with MON.lock:
         st = MON.tail.state
-        rows = album_rows(st, MON.albums, MON.disk, current_set())
+        rows = album_rows(st, MON.albums, MON.disk, current_set(),
+                          fb=FBSTORE.counts(), fb_titles=FBSTORE.titles())
         acked = ACKS.checker()
         recent = [e for e in reversed(st.events) if e.severity != "info" and not acked(e)][:15]
     attach_checks(rows)
@@ -313,7 +325,8 @@ def index(request: Request):
 def album(request: Request, set_id: str):
     with MON.lock:
         st = MON.tail.state
-        rows = album_rows(st, MON.albums, MON.disk, current_set())
+        rows = album_rows(st, MON.albums, MON.disk, current_set(),
+                          fb=FBSTORE.counts(), fb_titles=FBSTORE.titles())
         row = next((r for r in rows if r.set_id == set_id), None)
         jobs = [j for j in st.jobs if j.set_id == set_id]
         events = [e for e in st.events if e.set_id == set_id]
@@ -321,7 +334,7 @@ def album(request: Request, set_id: str):
     rep = SCANNER.report
     ac = rep.albums.get(set_id) if rep else None
     if row is None and ac is not None:        # on disk only (not in albums.txt nor the log)
-        row = AlbumRow(None, set_id, ac.username, ac.title,
+        row = AlbumRow(None, set_id, ac.username, album_title(set_id, ac.title),
                        ac.folders[0] if ac.folders else None, "unlisted")
     if row is None:
         raise HTTPException(404, "unknown album")
@@ -499,17 +512,26 @@ def facebook_page(request: Request, done: str = "", error: str = ""):
     rep = SCANNER.report
     with MON.lock:
         listed = {a.set_id: a for a in MON.albums}
-    rows = []
+    pages = {}
     for sid, v in fb.items():
         ac = rep.albums.get(sid) if rep else None
-        rows.append({"sid": sid, "fb": v, "ac": ac, "listed": listed.get(sid)})
-    order = {True: 0, False: 1}
-    rows.sort(key=lambda r: (r["fb"].get("page") or "", order[r["ac"] is None and r["listed"] is None],
-                             (r["fb"].get("title") or "").casefold()))
-    not_downloaded = [r for r in rows if r["ac"] is None and r["listed"] is None]
-    pages = sorted({v.get("page") or "?" for v in fb.values()})
+        li = listed.get(sid)
+        status = ("downloaded" if ac is not None and (li is None or li.done or ac.media) else
+                  "queued" if li is not None else "not downloaded")
+        pages.setdefault(v.get("page") or "?", []).append(
+            {"sid": sid, "fb": v, "ac": ac, "listed": li, "status": status})
+    summaries = {}
+    for name, rows in pages.items():
+        rows.sort(key=lambda r: (r["fb"].get("pos") or 10**6, r["sid"]))
+        taken = [r["fb"].get("pos") for r in rows if r["status"] != "not downloaded" and r["fb"].get("pos")]
+        if taken:
+            lo, hi = min(taken), max(taken)
+            gaps = [r for r in rows if r["status"] == "not downloaded" and lo < (r["fb"].get("pos") or 0) < hi]
+            summaries[name] = {"first": lo, "last": hi, "n": len(taken), "gaps": gaps, "total": len(rows)}
+        else:
+            summaries[name] = {"first": None, "last": None, "n": 0, "gaps": [], "total": len(rows)}
     return templates.TemplateResponse(request, "facebook.html", ctx(
-        request, rows=rows, not_downloaded=not_downloaded, pages=pages, done=done, error=error,
+        request, pages=dict(sorted(pages.items())), summaries=summaries, done=done, error=error,
         fb_writable=bool(FBSTORE.path), page="facebook"))
 
 

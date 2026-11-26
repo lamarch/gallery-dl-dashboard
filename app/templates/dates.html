@@ -94,7 +94,7 @@
   <tr class="sev-{{ 'bad' if a.state == 'changed' else 'warn' if a.state == 'partial' or a.overflows or a.inner_collisions else 'ok' }}">
     <td><input type="checkbox" name="sel" value="{{ a.set_id }}" {% if a.set_id in sel %}checked{% endif %} aria-label="Select {{ a.set_id }}"></td>
     <td><span class="dt dt-{{ a.state|replace(' ', '-') }}">{{ a.state }}</span></td>
-    <td class="name"><a href="{{ base }}/album/{{ a.set_id }}">{% if ac %}<bdi dir="auto" class="muted">{{ ac.username or '?' }}</bdi> › <bdi dir="auto">{{ ac.title or a.set_id }}</bdi>{% else %}{{ a.set_id }}{% endif %}</a><div class="sid">{{ a.set_id }} {{ fbset(a.set_id) }}</div></td>
+    <td class="name"><a href="{{ base }}/album/{{ a.set_id }}">{% if ac %}<bdi dir="auto" class="muted">{{ ac.username or '?' }}</bdi> › <bdi dir="auto">{{ album_title(a.set_id, ac.title) }}</bdi>{% else %}{{ a.set_id }}{% endif %}</a><div class="sid">{{ a.set_id }} {{ fbset(a.set_id) }}</div></td>
     <td class="num">{{ a.files|length }}</td>
     <td class="num">{{ a.files|selectattr('mtime_ok')|list|length }}{% if a.rounded %}<div class="small muted">+{{ a.rounded }} rounded</div>{% endif %}</td>
     <td class="num">{{ a.files|selectattr('tag_ok')|list|length }}</td>
@@ -123,9 +123,9 @@
     <thead><tr><th>Album</th><th class="num">Photos of the other album inside its time span</th><th>Other album</th><th>Overlap</th></tr></thead>
     <tbody>{% for i in items[:200] %}{% set aa = ir.albums.get(i.a) %}{% set bb = ir.albums.get(i.b) %}
       <tr>
-        <td class="name"><a href="{{ base }}/album/{{ i.a }}"><bdi dir="auto">{{ aa.title if aa and aa.title else i.a }}</bdi></a> <span class="dt dt-{{ dr.albums[i.a].state|replace(' ', '-') }}">{{ dr.albums[i.a].state }}</span></td>
+        <td class="name"><a href="{{ base }}/album/{{ i.a }}"><bdi dir="auto">{{ album_title(i.a, aa.title if aa else none) }}</bdi></a> <span class="dt dt-{{ dr.albums[i.a].state|replace(' ', '-') }}">{{ dr.albums[i.a].state }}</span></td>
         <td class="num"><b>{{ i.inside }}</b></td>
-        <td class="name"><a href="{{ base }}/album/{{ i.b }}"><bdi dir="auto">{{ bb.title if bb and bb.title else i.b }}</bdi></a> <span class="dt dt-{{ dr.albums[i.b].state|replace(' ', '-') }}">{{ dr.albums[i.b].state }}</span></td>
+        <td class="name"><a href="{{ base }}/album/{{ i.b }}"><bdi dir="auto">{{ album_title(i.b, bb.title if bb else none) }}</bdi></a> <span class="dt dt-{{ dr.albums[i.b].state|replace(' ', '-') }}">{{ dr.albums[i.b].state }}</span></td>
         <td class="nowrap small">{{ i.start|dt('%Y-%m-%d %H:%M') }} → {{ i.end|dt('%Y-%m-%d %H:%M') }}</td>
       </tr>{% endfor %}</tbody>
   </table></div>

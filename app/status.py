@@ -40,6 +40,11 @@ class AlbumRow:
     flags: list = field(default_factory=list)   # (severity, text)
     last_seen: Optional[datetime] = None
     check: object = None                        # integrity.AlbumCheck, when scanned
+    fb_count: Optional[int] = None              # photos shown by Facebook (imported page)
+    fb_approx: bool = False
+    log_full: Optional[int] = None              # photos seen by the last pass that reached the end
+    expected_ok: Optional[bool] = None          # Facebook = last full pass = on disk
+    eta: object = None                          # Eta for the current / pending albums
     first_start: Optional[datetime] = None      # first pass in the log
     last_end: Optional[datetime] = None         # end of the last pass (None while running)
     running: bool = False
@@ -54,8 +59,10 @@ class AlbumRow:
 
 
 def album_rows(state: LogState, albums: list, disk, current_set: Optional[str],
-               now: Optional[datetime] = None) -> list[AlbumRow]:
+               now: Optional[datetime] = None, fb: Optional[dict] = None,
+               fb_titles: Optional[dict] = None) -> list[AlbumRow]:
     now = now or datetime.now(timezone.utc)
+    fb, fb_titles = fb or {}, fb_titles or {}
     jobs_by_set: dict = {}
     for j in state.jobs:
         jobs_by_set.setdefault(j.set_id, []).append(j)
@@ -73,8 +80,10 @@ def album_rows(state: LogState, albums: list, disk, current_set: Optional[str],
             st = "done" if listed_done else "pending"
         r = AlbumRow(pos, set_id,
                      (d.username or d.account_folder) if d else None,
-                     (d.title or d.folder) if d else None,
+                     fb_titles.get(set_id) or ((d.title or d.folder) if d else None),
                      d.folder if d else None, st, passes=len(jobs))
+        if set_id in fb:
+            r.fb_count, r.fb_approx = fb[set_id]
         have, missing, failed = set(), {}, {}
         downloaded_ids = set()
         for j in jobs:
@@ -117,6 +126,23 @@ def album_rows(state: LogState, albums: list, disk, current_set: Optional[str],
         r.failed = sorted(pid for pid in failed if pid not in have and pid not in on_disk)
         if d:
             r.disk_media, r.disk_bytes = d.media, d.bytes
+        if jobs and jobs[-1].end_reason in END_OK:
+            r.log_full = len(jobs[-1].photos)
+        # compare only albums that were downloaded (done, or a pass in the log that
+        # is over); pending / current ones just show the expected count
+        if r.fb_count is not None and st not in ("current", "pending") and (jobs or d):
+            counts = [c for c in (r.log_full, len(d.media_ids) if d else None) if c is not None]
+            if counts:
+                r.expected_ok = all(c == r.fb_count for c in counts) or (
+                    r.fb_approx and all(abs(c - r.fb_count) <= max(1, r.fb_count * 0.05) for c in counts))
+            n_disk = len(d.media_ids) if d else 0
+            if n_disk < r.fb_count and not (r.fb_approx and r.fb_count - n_disk <= max(1, r.fb_count * 0.05)):
+                r.flags.append(("bad", f"Facebook shows {r.fb_count} photo(s), {n_disk} on disk"))
+            elif d and n_disk > r.fb_count and not r.fb_approx:
+                r.flags.append(("info", f"{n_disk - r.fb_count} more on disk than Facebook shows"))
+            if r.log_full is not None and r.log_full != r.fb_count and not r.fb_approx:
+                r.flags.append(("warn", f"the last complete pass saw {r.log_full} photo(s), Facebook shows "
+                                        f"{r.fb_count} (album changed on Facebook since?)"))
 
         # ---- flags -------------------------------------------------------------
         if r.missing:
@@ -150,6 +176,9 @@ def album_rows(state: LogState, albums: list, disk, current_set: Optional[str],
     for set_id in jobs_by_set:
         if set_id not in listed:
             rows.append(build(None, set_id, None))
+    etas = plan_queue(state, albums, disk, fb, now)[0]
+    for r in rows:
+        r.eta = etas.get(r.set_id)
     return rows
 
 
@@ -165,6 +194,52 @@ def seconds_per_photo(state: LogState) -> Optional[float]:
         if len(diffs) >= 300:
             break
     return mean(diffs[:300]) if diffs else None
+
+
+@dataclass
+class Eta:
+    start: datetime             # expected start (the pass start for the current album)
+    finish: datetime            # expected end
+    size: float                 # photos expected
+    from_fb: bool               # size comes from Facebook (else: average album size)
+
+
+def plan_queue(state: LogState, albums: list, disk, fb: Optional[dict], now: datetime):
+    """Expected start/end of the current album and of every pending album, in
+    albums.txt order: 1 h pause + photos x measured seconds per photo.
+    -> (etas {set_id: Eta}, end of the queue, seconds per photo, average size)"""
+    spp = seconds_per_photo(state) or DEFAULT_SPP
+    done_sizes = [disk.albums[a.set_id].media for a in albums
+                  if a.done and disk and a.set_id in disk.albums and disk.albums[a.set_id].media]
+    if not done_sizes and disk:
+        done_sizes = [d.media for d in disk.albums.values() if d.media]
+    avg = mean(done_sizes) if done_sizes else 50.0
+    fb = fb or {}
+
+    def size(sid):
+        c = fb.get(sid, (None, False))[0]
+        return (c, True) if c is not None else (avg, False)
+
+    s = state.session
+    job = s.current_job if s is not None and s.end is None else None
+    act = state.activity
+    etas, t = {}, now
+    if job is not None and job.set_id:
+        n, from_fb = size(job.set_id)
+        if act and act.reason == "extractor" and act.until and act.until > now:
+            left = (act.until - now).total_seconds() + n * spp
+        else:
+            left = max(n - len(job.photos), 0) * spp
+        t = now + timedelta(seconds=left)
+        etas[job.set_id] = Eta(job.start, t, n, from_fb)
+    for a in albums:
+        if a.done or a.set_id in etas or not a.set_id:
+            continue
+        n, from_fb = size(a.set_id)
+        start = t
+        t = t + timedelta(seconds=EXTRACTOR_PAUSE + n * spp)
+        etas[a.set_id] = Eta(start, t, n, from_fb)
+    return etas, t, spp, avg
 
 
 @dataclass
@@ -206,6 +281,8 @@ class Header:
     spp: Optional[float] = None
     avg_album: Optional[float] = None
     eta_from_fb: int = 0              # remaining albums whose size comes from Facebook
+    album_eta_at: Optional[datetime] = None      # expected end of the current album
+    album_eta_seconds: Optional[float] = None
 
 
 def header(state: LogState, albums: list, disk, now: Optional[datetime] = None,
@@ -296,29 +373,18 @@ def header(state: LogState, albums: list, disk, now: Optional[datetime] = None,
         h.disk_media, h.disk_bytes = disk.total_media, disk.total_bytes
         h.free_bytes, h.fs_bytes = disk.free_bytes, disk.fs_bytes
 
-    # ---- ETA ----------------------------------------------------------------
+    # ---- ETA (same queue as the albums table) ----------------------------------
     if h.state not in ("finished", "finished_err") and albums:
-        spp = seconds_per_photo(state) or DEFAULT_SPP
-        done_sizes = [disk.albums[a.set_id].media for a in albums
-                      if a.done and disk and a.set_id in disk.albums and disk.albums[a.set_id].media]
-        if not done_sizes and disk:
-            done_sizes = [d.media for d in disk.albums.values() if d.media]
-        avg = mean(done_sizes) if done_sizes else 50.0
-        fb = fb or {}
-        size = lambda sid: fb[sid][0] if sid in fb and fb[sid][0] is not None else avg  # noqa: E731
+        etas, end, spp, avg = plan_queue(state, albums, disk, fb, now)
+        h.eta_seconds = max(0.0, (end - now).total_seconds())
         remaining = [a for a in albums if not a.done and a.set_id != h.set_id]
-        cur_left = 0.0
-        if job is not None:
-            expected = size(h.set_id)
-            if act and act.reason == "extractor" and act.until and act.until > now:
-                cur_left = (act.until - now).total_seconds() + expected * spp
-            else:
-                cur_left = max(expected - h.album_seen, 0) * spp
-        pauses = len(remaining) * EXTRACTOR_PAUSE
-        h.eta_seconds = cur_left + pauses + sum(size(a.set_id) for a in remaining) * spp
-        h.eta_from_fb = sum(1 for a in remaining if a.set_id in fb)
-        h.eta_pause_seconds = pauses
+        h.eta_pause_seconds = len(remaining) * EXTRACTOR_PAUSE
+        h.eta_from_fb = sum(1 for a in remaining if etas.get(a.set_id) and etas[a.set_id].from_fb)
         h.spp, h.avg_album = spp, avg
+        cur_eta = etas.get(h.set_id) if job is not None else None
+        if cur_eta:
+            h.album_eta_at = cur_eta.finish
+            h.album_eta_seconds = max(0.0, (cur_eta.finish - now).total_seconds())
     return h
 
 

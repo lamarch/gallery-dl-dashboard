@@ -61,10 +61,10 @@ class FbStore:
             self._load()
             now = time.strftime("%Y-%m-%d %H:%M")
             new = updated = 0
-            for sid, a in page.albums.items():
+            for pos, (sid, a) in enumerate(page.albums.items(), 1):
                 old = self.albums.get(sid)
                 rec = {"title": a.title, "count": a.count, "approximate": a.approximate,
-                       "page": page.page_title or "?", "imported": now}
+                       "page": page.page_title or "?", "pos": pos, "imported": now}
                 if old is None:
                     new += 1
                 elif (old.get("title"), old.get("count")) != (a.title, a.count):

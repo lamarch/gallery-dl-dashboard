@@ -157,3 +157,5 @@ pre.cmd { margin: 0; padding: 10px 76px 10px 12px; background: var(--panel); col
 table.events form { margin: 0; }
 a.fb { font-family: system-ui, sans-serif; font-size: 11px; white-space: nowrap; }
 .fblinks { margin: -4px 0 12px; display: flex; gap: 12px; }
+table.fbtable tr.fb-not-downloaded td { color: var(--muted); }
+table.fbtable tr.fb-not-downloaded td:first-child { box-shadow: none; }

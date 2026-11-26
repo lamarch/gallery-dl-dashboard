@@ -24,7 +24,7 @@
     <thead><tr>
       <th>#</th><th>Status</th><th>Account › Album</th><th class="num">Passes</th><th>Last pass</th>
       <th class="num" title="in the last pass: downloaded / already had">Log new/had</th>
-      <th class="num">Missing</th><th class="num">On disk</th><th class="num">Size</th>
+      <th class="num">Missing</th><th class="num">On disk</th><th class="num" title="photos shown by Facebook (imported albums page); ✓ = same as on disk and in the last complete pass">Expected</th><th class="num">Size</th>
       <th>Started</th><th>Ended</th><th class="num" title="time spent downloading, all passes (1 h pauses and 429 waits excluded); hover for the total">Time</th>
       <th>Disk check</th><th>Flags</th>
     </tr></thead>
@@ -34,17 +34,18 @@
       <td class="num">{{ r.pos or '–' }}</td>
       <td><span class="st st-{{ r.state }}">{{ r.state }}</span></td>
       <td class="name">{% if r.set_id %}<a href="{{ base }}/album/{{ r.set_id }}">{% endif %}
-        {% if r.title %}<bdi dir="auto" class="muted">{{ r.account or '?' }}</bdi> › <bdi dir="auto">{{ r.title }}</bdi>{% else %}<span class="muted">not on disk yet</span>{% endif %}
+        {% if r.title %}{% if r.account %}<bdi dir="auto" class="muted">{{ r.account }}</bdi> › {% endif %}<bdi dir="auto">{{ r.title }}</bdi>{% else %}<span class="muted">not on disk yet</span>{% endif %}
         {% if r.set_id %}</a>{% endif %}<div class="sid">{{ r.set_id or 'no set id' }} {{ fbset(r.set_id) }}</div></td>
       <td class="num">{{ r.passes }}</td>
       <td>{{ r.end_label or '–' }}</td>
       <td class="num">{% if r.passes %}{{ r.downloaded|n }} / {{ r.skipped|n }}{% else %}–{% endif %}</td>
       <td class="num">{% if r.missing %}<b class="t-bad">{{ r.missing|length }}</b>{% else %}0{% endif %}</td>
       <td class="num">{{ r.disk_media|n }}</td>
+      <td class="num">{% if r.fb_count is not none %}<span class="{{ 't-ok' if r.expected_ok else 't-bad' if r.expected_ok is sameas false else '' }}" title="Facebook: {{ r.fb_count }}{% if r.log_full is not none %} · last complete pass: {{ r.log_full }}{% endif %} · on disk: {{ r.disk_media if r.disk_media is not none else 0 }}">{{ '~' if r.fb_approx }}{{ r.fb_count|n }}{% if r.expected_ok %} ✓{% elif r.expected_ok is sameas false %} ✗{% endif %}</span>{% else %}–{% endif %}</td>
       <td class="num">{{ r.disk_bytes|bytes }}</td>
       <td class="nowrap small">{{ r.first_start|dt('%d/%m/%y %H:%M') if r.first_start else '–' }}</td>
-      <td class="nowrap small">{% if r.running %}<span class="st st-current">running</span>{% elif r.last_end %}{{ r.last_end|dt('%d/%m/%y %H:%M') }}{% else %}–{% endif %}</td>
-      <td class="num" title="{% if r.first_start %}{{ r.time_total|dur }} in total, incl. {{ r.time_pause|dur }} of pauses{% endif %}">{{ r.time_work|dur if r.first_start else '–' }}</td>
+      <td class="nowrap small">{% if r.eta %}<span class="muted" title="estimated end ({{ r.eta.size|round|int }} photos{{ ' from Facebook' if r.eta.from_fb else ', average album size' }})">≈ {{ r.eta.finish|dt('%d/%m/%y %H:%M') }}</span>{% elif r.running %}<span class="st st-current">running</span>{% elif r.last_end %}{{ r.last_end|dt('%d/%m/%y %H:%M') }}{% else %}–{% endif %}</td>
+      <td class="num" title="{% if r.first_start %}{{ r.time_total|dur }} in total, incl. {{ r.time_pause|dur }} of pauses{% endif %}">{% if r.eta and r.state != 'current' %}<span class="muted" title="estimated: 1 h pause + {{ r.eta.size|round|int }} photos">≈ {{ (r.eta.finish - r.eta.start).total_seconds()|dur }}</span>{% elif r.first_start %}{{ r.time_work|dur }}{% else %}–{% endif %}</td>
       <td>{{ verdict(r.check) }}{% if r.check and r.check.missing_estimate %}<div class="t-bad small">{{ r.check.missing_estimate }} missing</div>{% endif %}</td>
       <td class="flags">{% for sev, txt in r.flags %}<div class="t-{{ sev }}">{{ txt }}</div>{% endfor %}</td>
     </tr>

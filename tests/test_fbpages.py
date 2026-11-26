@@ -122,8 +122,11 @@ def test_import_route_keeps_no_html(tmp_path, monkeypatch):
                    follow_redirects=False)
         assert r.status_code == 303 and "5 album" in r.headers["location"].replace("%20", " ")
         html = c.get("/facebook").text
-        assert "5 album(s) on Facebook are not downloaded" in html
-        assert "set=a.1003&amp;type=3" in html
+        assert "Nothing from this page is downloaded or in albums.txt" in html
+        # albums listed in the page's order, numbered #1..#5
+        import re as _re
+        order = _re.findall(r'<tr id="fb-(a\.\d+)"', html)
+        assert order == ["a.1001", "a.1002", "a.1003", "a.1004", "a.1005"]
     stored = [p for p in os.listdir(tmp_path) if not p.startswith(".")]
     assert "facebook-albums.json" in stored
     for name in stored:                                   # nothing but extracted data
@@ -131,3 +134,31 @@ def test_import_route_keeps_no_html(tmp_path, monkeypatch):
         if os.path.isfile(p):
             body = open(p, encoding="utf-8", errors="replace").read()
             assert "SECRET-TOKEN" not in body and "<html" not in body.lower()
+
+
+def test_facebook_order_summary(tmp_path, monkeypatch):
+    """Which part of the page was downloaded: first/last position and gaps."""
+    pytest.importorskip("httpx")
+    sys.path.insert(0, HERE)
+    from test_integrity import Lib
+    root = tmp_path / "dl"
+    L = Lib(str(root))
+    for sid in ("a.1002", "a.1004"):                      # #2 and #4 downloaded, #3 skipped
+        L.chain("Acc", "x", sid, [sid[2:] + "1"])
+    for k, v in {"DATA_DIR": str(tmp_path), "LOG_FILE": str(tmp_path / "x.log"),
+                 "ALBUMS_FILE": str(tmp_path / "x.txt"), "DOWNLOADS_ROOT": str(root),
+                 "INTEGRITY": "1"}.items():
+        monkeypatch.setenv(k, v)
+    import importlib
+    import app.main as m
+    m = importlib.reload(m)
+    m.FBSTORE.import_page(parse_albums_page(fake_page()))
+    m.SCANNER.scan_once()
+    from fastapi.testclient import TestClient
+    with TestClient(m.app) as c:
+        html = c.get("/facebook").text
+    m.SCANNER.stop.set()
+    m.SCANNER.poke.set()
+    assert "from <b>#2</b> to <b>#4</b>" in html
+    assert 'skipped in between: <a href="#fb-a.1003">#3</a>' in html
+    assert "#1–#1 not started" in html and "#5–#5 not started" in html

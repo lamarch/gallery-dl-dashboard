@@ -12,6 +12,8 @@
   <div><dt>Folder</dt><dd><bdi dir="auto">{{ row.folder or 'not on disk yet' }}</bdi></dd></div>
   <div><dt>On disk</dt><dd>{{ row.disk_media|n }} files · {{ row.disk_bytes|bytes }}{% if d and d.part %} · {{ d.part }} .part{% endif %}{% if d and (d.media_without_json or d.json_without_media) %} · {{ d.media_without_json }} without JSON, {{ d.json_without_media }} JSON without file{% endif %}</dd></div>
   <div><dt>Passes</dt><dd>{{ row.passes }}</dd></div>
+  {% if row.fb_count is not none %}<div><dt>Expected (Facebook)</dt><dd>{{ '~' if row.fb_approx }}{{ row.fb_count|n }} photos{% if row.expected_ok %} · <span class="t-ok">✓ same on disk{{ ' and in the last complete pass' if row.log_full is not none }}</span>{% elif row.expected_ok is sameas false %} · <span class="t-bad">✗ on disk {{ row.disk_media or 0 }}{% if row.log_full is not none %}, last complete pass {{ row.log_full }}{% endif %}</span>{% endif %}</dd></div>{% endif %}
+  {% if row.eta %}<div><dt>{{ 'Expected end' if row.state == 'current' else 'Estimate' }}</dt><dd>{% if row.state != 'current' %}start ≈ {{ row.eta.start|dt('%d/%m/%Y %H:%M') }} · {% endif %}end ≈ {{ row.eta.finish|dt('%d/%m/%Y %H:%M') }}<br><span class="small muted">{{ row.eta.size|round|int }} photos{{ ' (Facebook)' if row.eta.from_fb else ' (average album size)' }}</span></dd></div>{% endif %}
   {% if row.first_start %}<div><dt>Time</dt><dd>{{ row.first_start|dt('%d/%m/%Y %H:%M:%S') }} → {% if row.running %}<span class="st st-current">running</span>{% else %}{{ row.last_end|dt('%d/%m/%Y %H:%M:%S') }}{% endif %}<br>
     {{ row.time_work|dur }} downloading · {{ row.time_pause|dur }} pauses · {{ row.time_total|dur }} in total</dd></div>{% endif %}
 </dl>

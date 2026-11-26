@@ -49,8 +49,13 @@ missing**.
   memory and only album IDs, titles and counts are kept. The disk check then
   compares each album with Facebook's count (this also catches photos missing
   at the end of an album), the header shows "seen / expected" and a better
-  ETA, the Names tab gets the Facebook titles, and albums that are on
-  Facebook but not downloaded are listed with ready lines for albums.txt.
+  ETA, Facebook's titles are used everywhere (gallery-dl's can be badly
+  decoded), and the Facebook tab lists each page's albums in Facebook's order
+  with which range was downloaded and what was skipped in between.
+- **Expected and ETA** in the albums table: Facebook's count, checked against
+  the photos on disk and the last complete pass (✓ / ✗); for the current and
+  pending albums, the estimated end (1 h pause + photos x measured time per
+  photo, in albums.txt order), also shown in the header for the current album.
 - **Names**: choose the album name Immich should show, kept in
   `album-names.tsv` (data folder, editable by hand too) next to the folder
   name and gallery-dl's title. Folders are never renamed:

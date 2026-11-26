@@ -72,3 +72,64 @@ def test_albums_txt_and_rows(tmp_path):
     r1 = rows[0]
     assert r1.state == "done" and r1.missing == ["13"] and r1.severity == "bad"
     assert rows[1].state == "pending" and rows[1].passes == 0
+
+
+def test_queue_eta_uses_facebook_sizes():
+    from app.albums import InputAlbum
+    from app.status import EXTRACTOR_PAUSE, plan_queue
+    f = FakeLog().session_start()
+    f.job_start("a.1", sleep_extractor=0)
+    for i in range(10):
+        f.photo(str(100 + i))                                # 10 photos seen, ~23.5 s each
+    st = st_of(f)
+    albums = [InputAlbum(1, 1, "a.1", "u", False), InputAlbum(2, 2, "a.2", "u", False),
+              InputAlbum(3, 3, "a.3", "u", True), InputAlbum(4, 4, "a.4", "u", False)]
+    now = st.last_ts
+    etas, end, spp, avg = plan_queue(st, albums, None, {"a.1": (30, False), "a.2": (100, False)}, now)
+    assert set(etas) == {"a.1", "a.2", "a.4"}                # a.3 is done
+    cur = etas["a.1"]
+    assert abs((cur.finish - now).total_seconds() - 20 * spp) < 1e-6     # 30 expected - 10 seen
+    a2 = etas["a.2"]
+    assert a2.start == cur.finish and a2.from_fb
+    assert abs((a2.finish - a2.start).total_seconds() - (EXTRACTOR_PAUSE + 100 * spp)) < 1e-6
+    assert etas["a.4"].start == a2.finish and not etas["a.4"].from_fb and etas["a.4"].size == avg
+    h = header(st, albums, None, now=now, fb={"a.1": (30, False), "a.2": (100, False)})
+    assert h.album_expected == 30 and h.album_eta_at == cur.finish
+    assert abs(h.eta_seconds - (end - now).total_seconds()) < 1e-6
+
+
+def test_expected_column_coherence(tmp_path):
+    import sys as _s
+    _s.path.insert(0, HERE)
+    from test_integrity import Lib
+    from app import disk as disk_mod
+    from app.albums import InputAlbum
+    L = Lib(str(tmp_path / "fb"))
+    L.chain("A", "One", "a.1", ["11", "12"])
+    L.chain("A", "Two", "a.2", ["21"])
+    f = FakeLog().session_start()
+    f.job_start("a.1", sleep_extractor=0).photo("11").photo("12").end_chain()
+    f.job_start("a.2", sleep_extractor=0).photo("21").end_chain()
+    f.job_start("a.3", sleep_extractor=0)
+    st = st_of(f)
+    disk = disk_mod.scan(L.root)
+    albums = [InputAlbum(1, 1, "a.1", "u", True), InputAlbum(2, 2, "a.2", "u", True)]
+    rows = {r.set_id: r for r in album_rows(st, albums, disk, "a.3",
+                                             fb={"a.1": (2, False), "a.2": (3, False)},
+                                             fb_titles={"a.2": "Titre Facebook"})}
+    assert rows["a.1"].expected_ok is True and rows["a.1"].log_full == 2
+    r2 = rows["a.2"]
+    assert r2.expected_ok is False and r2.title == "Titre Facebook"
+    texts = " ".join(t for _, t in r2.flags)
+    assert "Facebook shows 3 photo(s), 1 on disk" in texts
+    assert "last complete pass saw 1 photo(s), Facebook shows 3" in texts
+
+
+def test_pending_album_is_not_flagged_against_facebook():
+    from app.albums import InputAlbum
+    st = st_of(base())                                       # a.1 being downloaded
+    rows = album_rows(st, [InputAlbum(1, 1, "a.1", "u", False), InputAlbum(2, 2, "a.9", "u", False)],
+                      None, "a.1", fb={"a.9": (30, False), "a.1": (5, False)}, fb_titles={"a.9": "Plus tard"})
+    r9 = next(r for r in rows if r.set_id == "a.9")
+    assert r9.state == "pending" and r9.fb_count == 30 and r9.flags == [] and r9.expected_ok is None
+    assert r9.title == "Plus tard" and r9.eta is not None
