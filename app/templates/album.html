@@ -108,15 +108,14 @@
   {% if changing %}
   <details {% if ad.danger %}open{% endif %}><summary>{{ changing|length }} file(s) fix_order would touch</summary>
   <div class="tablewrap"><table>
-    <thead><tr><th>File</th><th>State</th><th>Target</th><th>mtime now</th><th>Date tag now</th><th>Batch</th></tr></thead>
+    <thead><tr><th>File</th><th>State</th><th>Target</th><th>Batch</th><th>What fix_order would change</th></tr></thead>
     <tbody>{% for f in changing[:300] %}
-      <tr class="sev-{{ 'bad' if f.rewrite_corrected else 'ok' }}">
+      <tr class="sev-{{ 'bad' if f.state == 'changed' else 'ok' }}">
         <td><code>{{ f.entry.name }}</code></td>
         <td>{{ f.state }}</td>
-        <td class="nowrap">{{ f.target|dt('%Y-%m-%d %H:%M:%S') }}</td>
-        <td class="nowrap">{% if f.mtime_ok %}<span class="t-ok">ok</span>{% else %}{{ f.mtime_dt|dt('%Y-%m-%d %H:%M:%S') }}{% endif %}</td>
-        <td class="nowrap">{% if f.tag_ok %}<span class="t-ok">ok</span>{% elif f.embedded %}{{ f.embedded|dt('%Y-%m-%d %H:%M:%S') }}{% if f.entry.result.dt_offset %} ({{ f.entry.result.dt_offset }}){% endif %}{% else %}<span class="muted">none</span>{% endif %}</td>
+        <td class="nowrap">{{ f.target|dt('%Y-%m-%d %H:%M:%S') }}.{{ '%03d' % (f.target.microsecond // 1000) }}</td>
         <td class="num">{{ f.rank + 1 }}/{{ f.group }}</td>
+        <td class="small">{% for d in f.differences() %}<div>{{ d }}</div>{% else %}<span class="muted">nothing</span>{% endfor %}</td>
       </tr>{% endfor %}</tbody>
   </table></div></details>
   {% endif %}

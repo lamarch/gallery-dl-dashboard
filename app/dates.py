@@ -164,6 +164,36 @@ class FileDate:
     would_content: bool      # fix_order would change the file's bytes
     corrected: bool          # fix_order already wrote a date tag in this file
     mtime_rounded: bool = False   # mtime == target cut to the whole second (exiftool -P)
+    expected_tag: tuple = ()      # what fix_order would write: (date, subsec|'-', offset)
+    actual_tag: tuple = ()        # what the file has
+    mtime_delta: float = 0.0      # file mtime - target, seconds
+
+    def differences(self) -> list:
+        """Plain-language list of what fix_order would change in this file."""
+        out = []
+        if not self.mtime_ok:
+            if self.mtime_rounded:
+                out.append(f"mtime cut to the whole second ({self.mtime_delta:+.3f} s), harmless")
+            else:
+                out.append(f"mtime differs by {self.mtime_delta:+.3f} s")
+        if not self.tag_ok:
+            if self.actual_tag and self.expected_tag:
+                labels = ("date", "sub-seconds", "offset")
+                for lab, a, b in zip(labels, self.actual_tag, self.expected_tag):
+                    if a == b:
+                        continue
+                    if lab == "sub-seconds" and b == "-":
+                        out.append(f"EXIF sub-seconds “{a}” left over from an earlier run: the photo "
+                                   f"sits {int(a) / 1000 if a.isdigit() else '?'} s too late in Immich. "
+                                   f"fix_order.py never removes this tag, so it rewrites this file at "
+                                   f"every run without fixing it (see its fix)")
+                    else:
+                        out.append(f"EXIF {lab}: file has “{a}”, fix_order would write “{b}”")
+            elif self.embedded is None:
+                out.append("no date tag in the file")
+            else:
+                out.append("date tag differs from the target")
+        return out
 
     @property
     def mtime_dt(self) -> datetime:
@@ -236,6 +266,13 @@ class AlbumDates:
     def danger(self) -> int:
         """Already-corrected files fix_order would modify if run now."""
         return sum(1 for f in self.files if f.rewrite_corrected and not f.rounded)
+
+    @property
+    def stale_subsec(self) -> int:
+        """Photos with sub-seconds left over by an earlier run (fix_order never clears them)."""
+        return sum(1 for f in self.files
+                   if f.actual_tag and f.expected_tag and f.expected_tag[1] == "-"
+                   and f.actual_tag[1] != "-" and f.actual_tag[0] == f.expected_tag[0])
 
     @property
     def rounded(self) -> int:
@@ -429,5 +466,9 @@ def _classify(e, target, rank, n, tz, step, rep) -> FileDate:
         corrected = emb is not None and (emb_ok or abs(emb.timestamp() - mtime) < 1.5)
     rounded = (not mtime_ok and target.microsecond != 0
                and abs(mtime - float(int(ts))) < TOLERANCE_MTIME)
-    return FileDate(e, target, rank, n, mtime_ok, emb, tag_ok,
-                    not mtime_ok, would_content, corrected, rounded)
+    fd = FileDate(e, target, rank, n, mtime_ok, emb, tag_ok,
+                  not mtime_ok, would_content, corrected, rounded)
+    fd.mtime_delta = mtime - ts
+    if e.ext in IMAGES:
+        fd.expected_tag, fd.actual_tag = exp, actual
+    return fd

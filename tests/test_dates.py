@@ -241,3 +241,21 @@ def test_mtime_rounded_by_exiftool_is_harmless(tmp_path):
     assert st == {"rounded": 22, "ok": 3}                   # ranks 0, 10, 20 stay exact
     assert a.state == "applied" and a.rounded == 22 and a.danger == 0
     assert sum(f.would_mtime for f in a.files) == 22         # fix_order would still touch them
+
+
+def test_stale_subseconds_left_by_an_earlier_run(tmp_path):
+    """Seen with the real script: a photo moved from a fractional target to a
+    whole second keeps its old SubSecTimeOriginal (fix_order never clears it):
+    same date to the second, still 'changed'. The page must say why."""
+    L = Lib(str(tmp_path))
+    # batch of 2 (step 1): targets :00 and :01; photo 2 carries :01 + stale ".900"
+    d = L.album("a.31", [("3101", B, T(B), ".jpg"),
+                         ("3102", B, T(B) + timedelta(seconds=1.9), ".jpg")])
+    p = os.path.join(d, "20240501_100000_3102.jpg")
+    t = (T(B) + timedelta(seconds=1)).timestamp()
+    os.utime(p, (t, t))
+    a = run(L.root)[0].albums["a.31"]
+    f = next(f for f in a.files if f.entry.photo_id == "3102")
+    assert f.state == "changed" and a.stale_subsec == 1
+    assert f.actual_tag[0] == f.expected_tag[0]              # identical to the second
+    assert any("left over from an earlier run" in d for d in f.differences())
