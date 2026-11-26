@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <title>{% block title %}fb-dl dashboard{% endblock %}</title>
-<link rel="stylesheet" href="{{ base }}/static/style.css">
+<link rel="stylesheet" href="{{ static_url('style.css') }}">
 </head>
 <body>
 <nav class="top">
@@ -24,6 +24,6 @@
 <main>
 {% block content %}{% endblock %}
 </main>
-<script src="{{ base }}/static/app.js"></script>
+<script src="{{ static_url('app.js') }}"></script>
 </body>
 </html>

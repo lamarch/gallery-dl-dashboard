@@ -235,7 +235,27 @@ def albumprops_cmd(write: bool) -> str:
     return " ".join(shlex.quote(a) for a in args)
 
 
-templates.env.globals.update(fixorder_cmd=fixorder_cmd, albumprops_cmd=albumprops_cmd)
+def _static_versions() -> dict:
+    """Content hash of each static file: changes the URL whenever the file
+    changes, so browsers never keep an old script or stylesheet."""
+    import hashlib
+    out = {}
+    d = os.path.join(HERE, "static")
+    for n in os.listdir(d):
+        with open(os.path.join(d, n), "rb") as fh:
+            out[n] = hashlib.sha1(fh.read()).hexdigest()[:10]
+    return out
+
+
+STATIC_V = _static_versions()
+
+
+def static_url(name: str) -> str:
+    return f"{CFG['base']}/static/{name}?v={STATIC_V.get(name, '0')}"
+
+
+templates.env.globals.update(fixorder_cmd=fixorder_cmd, albumprops_cmd=albumprops_cmd,
+                             static_url=static_url)
 templates.env.globals.update(base=CFG["base"], END_REASONS=END_REASONS, decode_exit=decode_exit,
                              tzname=str(DISPLAY_TZ))
 

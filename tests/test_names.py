@@ -203,3 +203,25 @@ def test_albumprops_command(tmp_path, monkeypatch):
     assert "./my dl's:/downloads:ro" in dry and "--write" not in dry
     assert "./my dl's:/downloads" in write and write[-1] == "--write"
     assert "./dashboard-data:/data:ro" in write          # names are only read
+
+
+def test_static_files_are_versioned(tmp_path, monkeypatch):
+    """Browsers must not keep an old app.js/style.css after an update."""
+    pytest.importorskip("httpx")
+    for k, v in {"DATA_DIR": str(tmp_path), "INTEGRITY": "0", "LOG_FILE": str(tmp_path / "x.log"),
+                 "ALBUMS_FILE": str(tmp_path / "x.txt")}.items():
+        monkeypatch.setenv(k, v)
+    import hashlib
+    import importlib
+    import re
+    import app.main as m
+    m = importlib.reload(m)
+    from fastapi.testclient import TestClient
+    with TestClient(m.app) as c:
+        html = c.get("/names").text
+        for name in ("app.js", "style.css"):
+            mm = re.search(rf'/static/{re.escape(name)}\?v=([0-9a-f]+)"', html)
+            assert mm, name
+            body = open(os.path.join(HERE, "..", "app", "static", name), "rb").read()
+            assert mm.group(1) == hashlib.sha1(body).hexdigest()[:10]
+            assert c.get(f"/static/{name}?v={mm.group(1)}").status_code == 200

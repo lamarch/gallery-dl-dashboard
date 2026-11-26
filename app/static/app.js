@@ -1,5 +1,5 @@
 // Live header refresh + client-side countdowns + album filters. No dependencies.
-(function () {
+(function () { try {
   "use strict";
 
   function fmt(sec) {
@@ -59,10 +59,10 @@
     try { saved = localStorage.getItem(key) || "all"; } catch (e) {}
     applyFilter(saved);
   }
-})();
+} catch (e) { if (window.console) console.error("fb-dl:", e); } })();
 
 // Copy buttons on command boxes (<pre class="cmd">)
-(function () {
+(function () { try {
   "use strict";
   function fallbackCopy(text) {
     var ta = document.createElement("textarea");
@@ -107,4 +107,4 @@
     });
     box.appendChild(btn);
   });
-})();
+} catch (e) { if (window.console) console.error("fb-dl:", e); } })();
