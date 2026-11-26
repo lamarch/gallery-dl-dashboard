@@ -249,7 +249,7 @@ def test_static_files_are_versioned(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     with TestClient(m.app) as c:
         html = c.get("/names").text
-        for name in ("app.js", "style.css"):
+        for name in ("app.js", "style.css", "favicon.svg"):
             mm = re.search(rf'/static/{re.escape(name)}\?v=([0-9a-f]+)"', html)
             assert mm, name
             body = open(os.path.join(HERE, "..", "app", "static", name), "rb").read()
