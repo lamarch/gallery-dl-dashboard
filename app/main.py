@@ -35,6 +35,9 @@ CFG = {
     "integrity": os.environ.get("INTEGRITY", "1") != "0",
     "integrity_mbps": float(os.environ.get("INTEGRITY_MAX_MBPS", "40")),
     "integrity_every": float(os.environ.get("INTEGRITY_RESCAN_SECONDS", "900")),
+    # the settings fix_order.py is run with (--tz / --step)
+    "fix_tz": os.environ.get("FIXORDER_TZ") or os.environ.get("DISPLAY_TZ") or os.environ.get("TZ") or "UTC",
+    "fix_step": float(os.environ.get("FIXORDER_STEP", "1")),
 }
 
 
@@ -106,7 +109,9 @@ def _locked_log_snapshot():
 
 SCANNER = IntegrityScanner(CFG["downloads_root"], _cache_path, CFG["archive_file"],
                            CFG["integrity_mbps"], CFG["integrity_every"], _locked_current_set,
-                           log_snapshot=_locked_log_snapshot)
+                           log_snapshot=_locked_log_snapshot,
+                           fix_tz=_tz(CFG["fix_tz"], timezone.utc), fix_tz_name=CFG["fix_tz"],
+                           fix_step=CFG["fix_step"])
 
 
 @asynccontextmanager
@@ -233,6 +238,7 @@ def album(request: Request, set_id: str):
     attach_checks([row], flags=False)   # details are shown in the disk-check section
     return templates.TemplateResponse(request, "album.html", ctx(
         request, row=row, jobs=jobs, events=list(reversed(events))[:300], d=d, ac=ac,
+        ad=(rep.dates.albums.get(set_id) if rep and rep.dates else None), cfg=CFG,
         page="albums"))
 
 
@@ -244,6 +250,16 @@ def integrity_page(request: Request):
         a.username or "", a.title or "", a.set_id)) if rep else []
     return templates.TemplateResponse(request, "integrity.html", ctx(
         request, albums=albums, page="integrity"))
+
+
+@app.get("/dates", response_class=HTMLResponse)
+def dates_page(request: Request):
+    rep = SCANNER.report
+    dr = rep.dates if rep else None
+    order = {"changed": 0, "partial": 1, "not run": 2, "applied": 3, "nothing": 4}
+    albums = sorted(dr.albums.values(), key=lambda a: (order.get(a.state, 9), a.set_id)) if dr else []
+    return templates.TemplateResponse(request, "dates.html", ctx(
+        request, dr=dr, dalbums=albums, cfg=CFG, page="dates"))
 
 
 @app.post("/integrity/rescan")

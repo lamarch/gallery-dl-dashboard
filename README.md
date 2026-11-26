@@ -36,6 +36,14 @@ missing**.
   reached the end of an album gives its full photo list (this also catches a
   photo missing at the very end of an album). An album is "verified" when
   files, JSON and log agree, "verified (disk only)" when it is not in the log.
+- **Dates** (read-only): status of a `fix_order.py`-style date fix (mtime +
+  EXIF/XMP/QuickTime date in album order) per album: applied / not run /
+  partial (new photos) / **changed** (running it now would modify files it had
+  already corrected, e.g. after the album changed or with another `--tz`),
+  what a run would change, timestamp collisions inside and between albums,
+  and whether the album is proven complete enough to be fixed. The ordering
+  logic is a line-by-line port of the script and was checked against the real
+  script's `--dry-run`.
 - **Sessions** (one per gallery-dl start): result / exit code, interrupted
   runs (crash, power cut), time spent in each kind of sleep and 429 wait.
 - **Events**: every warning and error, with tracebacks; **Diagnostics**: log
@@ -59,6 +67,7 @@ app/                  the dashboard (FastAPI + Jinja, runs as an unprivileged ui
   disk.py             light read-only disk scan (names, counts, sizes, free space)
   albums.py           albums.txt reader (gallery-dl -I comments finished albums out)
   integrity.py        deep read-only disk check (decode, completeness, duplicates, archive)
+  dates.py            read-only fix_order.py status (dates, order, overlaps)
 Dockerfile            builds the dashboard image (only app/ goes in, see .dockerignore)
 tests/                pytest suite, fake-log generator, demo builder
 tools/seed_archive.py fill a gallery-dl download archive from files already on disk
@@ -129,6 +138,8 @@ fbdl.example.com {
 | `INTEGRITY` | `1` | `0` turns the disk check off |
 | `INTEGRITY_MAX_MBPS` | `40` | disk read cap for the check, in MB/s |
 | `INTEGRITY_RESCAN_SECONDS` | `900` | pause between passes (only changed files are re-read) |
+| `FIXORDER_TZ` | `DISPLAY_TZ` | the `--tz` you run fix_order.py with (a different one rewrites every EXIF) |
+| `FIXORDER_STEP` | `1` | the `--step` you run fix_order.py with |
 
 ## Development
 

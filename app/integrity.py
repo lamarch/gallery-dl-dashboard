@@ -45,7 +45,7 @@ except Exception:  # pragma: no cover - Pillow is in requirements
     HAVE_PIL = False
     PIL_AVIF = False
 
-CHECK_VERSION = 1            # bump when the per-file checks change
+CHECK_VERSION = 2            # bump when the per-file checks change
 TRANSIENT = 300              # seconds: very new files may still lack their JSON
 SIMILAR_MAX_DIST = 6         # dHash Hamming distance for "near-identical"
 MAX_SIMILAR_PAIRS = 500
@@ -76,6 +76,12 @@ class FileResult:
     dhash: Optional[int] = None   # 64-bit difference hash
     width: Optional[int] = None
     height: Optional[int] = None
+    # embedded capture date, as written by fix_order (read-only extraction)
+    dt_kind: Optional[str] = None     # exif|xmp|qt
+    dt_value: Optional[str] = None    # "YYYY:MM:DD HH:MM:SS" (exif: local, qt: UTC, xmp: ISO)
+    dt_offset: Optional[str] = None   # "+02:00" (exif OffsetTimeOriginal)
+    dt_subsec: Optional[str] = None   # exif SubSecTimeOriginal
+    ctime_ns: int = 0
 
 
 def sniff(head: bytes) -> str:
@@ -174,6 +180,8 @@ def _check_image(res: FileResult, data: bytes, ext_fmt: Optional[str]):
                         im.load()
                         im.seek(0)
                 res.dhash = _dhash(im)
+                if fmt in ("jpeg", "png", "webp"):
+                    _read_exif_date(res, im)
         except Exception as e:  # truncated/corrupt data, unsupported variant...
             msg = str(e).splitlines()[0][:120] if str(e) else e.__class__.__name__
             prob = prob or f"cannot be decoded ({msg})"
@@ -223,11 +231,78 @@ def _check_video(res: FileResult, fh, size: int):
                 left -= len(chunk)
         pos += length
     res.chash = h.hexdigest()
+    res.dt_value = _mp4_create_date(fh, size)
+    if res.dt_value:
+        res.dt_kind = "qt"
     res.note = "structure checked (videos are not decoded)"
+
+
+RE_XMP_DATE = re.compile(rb'photoshop:DateCreated(?:="([^"]+)"|>([^<]+)<)')
+
+
+def _clean(v) -> Optional[str]:
+    if v is None:
+        return None
+    if isinstance(v, bytes):
+        v = v.decode("ascii", "replace")
+    v = str(v).strip().strip("\x00").strip()
+    return v or None
+
+
+def _read_exif_date(res: FileResult, im):
+    try:
+        exif = im.getexif()
+        ifd = exif.get_ifd(0x8769)            # Exif sub-IFD
+        dto = _clean(ifd.get(0x9003))         # DateTimeOriginal
+        if dto:
+            res.dt_kind, res.dt_value = "exif", dto
+            res.dt_offset = _clean(ifd.get(0x9011))   # OffsetTimeOriginal
+            res.dt_subsec = _clean(ifd.get(0x9291))   # SubSecTimeOriginal
+    except Exception:
+        pass
+
+
+def _mp4_create_date(fh, size) -> Optional[str]:
+    """moov/mvhd creation_time (UTC, seconds since 1904) as 'YYYY:MM:DD HH:MM:SS'."""
+    import datetime as _dt
+    try:
+        pos = 0
+        while pos + 8 <= size:
+            fh.seek(pos)
+            length, kind = struct.unpack(">I4s", fh.read(8))
+            hl = 8
+            if length == 1:
+                length, hl = struct.unpack(">Q", fh.read(8))[0], 16
+            elif length == 0:
+                length = size - pos
+            if length < hl:
+                return None
+            if kind == b"moov":
+                end, cpos = pos + length, pos + hl
+                while cpos + 8 <= end:
+                    fh.seek(cpos)
+                    clen, ckind = struct.unpack(">I4s", fh.read(8))
+                    if clen < 8:
+                        return None
+                    if ckind == b"mvhd":
+                        ver = fh.read(4)[0]
+                        raw = fh.read(8 if ver == 1 else 4)
+                        secs = int.from_bytes(raw, "big")
+                        if secs == 0:
+                            return None
+                        d = _dt.datetime(1904, 1, 1) + _dt.timedelta(seconds=secs)
+                        return d.strftime("%Y:%m:%d %H:%M:%S")
+                    cpos += clen
+                return None
+            pos += length
+    except (OSError, struct.error, IndexError, OverflowError):
+        return None
+    return None
 
 
 def check_file(path: str, st: os.stat_result) -> FileResult:
     res = FileResult(path, st.st_size, st.st_mtime_ns, st.st_ino)
+    res.ctime_ns = st.st_ctime_ns
     ext = os.path.splitext(path)[1].lower()
     ext_fmt = EXT_FMT.get(ext)
     if st.st_size == 0:
@@ -252,6 +327,10 @@ def check_file(path: str, st: os.stat_result) -> FileResult:
                     res.chash = hashlib.sha1(data).hexdigest()
                 else:
                     _check_image(res, data, ext_fmt)
+                    if res.fmt == "gif":
+                        m = RE_XMP_DATE.search(data)
+                        if m:
+                            res.dt_kind, res.dt_value = "xmp", (m.group(1) or m.group(2)).decode("ascii", "replace")
     except OSError as e:
         res.ok, res.problem = False, f"unreadable ({e.__class__.__name__})"
         return res
@@ -268,8 +347,9 @@ def check_file(path: str, st: os.stat_result) -> FileResult:
 # Cache
 # =============================================================================
 class Cache:
-    COLS = ("path", "size", "mtime_ns", "ino", "version", "fmt", "ok", "problem",
-            "note", "chash", "dhash", "width", "height")
+    COLS = ("path", "size", "mtime_ns", "ino", "ctime_ns", "version", "fmt", "ok", "problem",
+            "note", "chash", "dhash", "width", "height",
+            "dt_kind", "dt_value", "dt_offset", "dt_subsec")
 
     def __init__(self, path: Optional[str]):
         self.path = path
@@ -281,30 +361,39 @@ class Cache:
         except (sqlite3.Error, OSError) as e:
             self.error = f"cache not writable ({e.__class__.__name__}), using memory"
             self.con = sqlite3.connect(":memory:", check_same_thread=False)
+        cols = [r[1] for r in self.con.execute("PRAGMA table_info(files)")]
+        if cols and tuple(cols) != self.COLS:       # older layout: start over
+            self.con.execute("DROP TABLE files")
         self.con.execute(
             "CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, size INT, "
-            "mtime_ns INT, ino INT, version INT, fmt TEXT, ok INT, problem TEXT, "
-            "note TEXT, chash TEXT, dhash TEXT, width INT, height INT)")
+            "mtime_ns INT, ino INT, ctime_ns INT, version INT, fmt TEXT, ok INT, problem TEXT, "
+            "note TEXT, chash TEXT, dhash TEXT, width INT, height INT, "
+            "dt_kind TEXT, dt_value TEXT, dt_offset TEXT, dt_subsec TEXT)")
         self.con.commit()
         self.pending = 0
 
     def get(self, path: str, st) -> Optional[FileResult]:
+        # ctime is part of the key: an in-place rewrite that keeps size, mtime
+        # (exiftool -P) and inode still changes the ctime
         row = self.con.execute(
-            "SELECT * FROM files WHERE path=? AND size=? AND mtime_ns=? AND ino=? AND version=?",
-            (path, st.st_size, st.st_mtime_ns, st.st_ino, CHECK_VERSION)).fetchone()
+            "SELECT * FROM files WHERE path=? AND size=? AND mtime_ns=? AND ino=? "
+            "AND ctime_ns=? AND version=?",
+            (path, st.st_size, st.st_mtime_ns, st.st_ino, st.st_ctime_ns, CHECK_VERSION)).fetchone()
         if row is None:
             return None
         d = dict(zip(self.COLS, row))
-        return FileResult(d["path"], d["size"], d["mtime_ns"], d["ino"], d["fmt"], bool(d["ok"]),
-                          d["problem"], d["note"], d["chash"],
-                          int(d["dhash"], 16) if d["dhash"] else None, d["width"], d["height"])
+        r = FileResult(d["path"], d["size"], d["mtime_ns"], d["ino"], d["fmt"], bool(d["ok"]),
+                       d["problem"], d["note"], d["chash"],
+                       int(d["dhash"], 16) if d["dhash"] else None, d["width"], d["height"],
+                       d["dt_kind"], d["dt_value"], d["dt_offset"], d["dt_subsec"], d["ctime_ns"])
+        return r
 
     def put(self, r: FileResult):
         self.con.execute(
-            "INSERT OR REPLACE INTO files VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (r.path, r.size, r.mtime_ns, r.ino, CHECK_VERSION, r.fmt, int(r.ok), r.problem,
-             r.note, r.chash, f"{r.dhash:016x}" if r.dhash is not None else None,
-             r.width, r.height))
+            "INSERT OR REPLACE INTO files VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (r.path, r.size, r.mtime_ns, r.ino, r.ctime_ns, CHECK_VERSION, r.fmt, int(r.ok),
+             r.problem, r.note, r.chash, f"{r.dhash:016x}" if r.dhash is not None else None,
+             r.width, r.height, r.dt_kind, r.dt_value, r.dt_offset, r.dt_subsec))
         self.pending += 1
         if self.pending >= 200:
             self.commit()
@@ -460,6 +549,7 @@ class Report:
     by_key: dict = field(default_factory=dict)             # thumbnail key -> path
     formats: dict = field(default_factory=dict)
     partial: bool = False                                  # first pass still running
+    dates: object = None                                   # dates.DatesReport
 
     def counts(self) -> dict:
         c = defaultdict(int)
@@ -793,7 +883,8 @@ class IntegrityScanner:
     def __init__(self, root: str, cache_path: Optional[str], archive_path: Optional[str],
                  max_mbps: float = 40.0, rescan_every: float = 900.0,
                  current_set=lambda: None, clock=time.time, log_snapshot=None,
-                 rebuild_every: float = 60.0):
+                 rebuild_every: float = 60.0, fix_tz=None, fix_tz_name: str = "UTC",
+                 fix_step: float = 1.0):
         self.root = root
         self.cache = Cache(cache_path)
         self.archive_path = archive_path
@@ -803,6 +894,9 @@ class IntegrityScanner:
         self.clock = clock
         self.log_snapshot = log_snapshot
         self.rebuild_every = rebuild_every
+        self.fix_tz = fix_tz
+        self.fix_tz_name = fix_tz_name
+        self.fix_step = fix_step
         self._last_lists = None
         self.report: Optional[Report] = None
         self.progress = {"phase": "waiting", "done": 0, "total": 0, "started": None, "passes": 0}
@@ -922,6 +1016,10 @@ class IntegrityScanner:
         rep = build_report(media, json_only, other, archive, aerr,
                            self.current_set(), started, self.clock(), log)
         rep.partial = partial
+        from .dates import build_dates
+        from datetime import timezone as _tz
+        rep.dates = build_dates(media, self.fix_tz or _tz.utc, self.fix_tz_name, self.fix_step,
+                                rep.albums, self.current_set())
         with self.lock:
             self.report = rep
         self._published = time.time()

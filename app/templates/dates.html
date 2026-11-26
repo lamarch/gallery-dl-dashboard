@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "_macros.html" import verdict %}
+{% block title %}Dates · fb-dl{% endblock %}
+{% block content %}
+<h2>Dates &amp; order <small class="muted">fix_order.py status, read-only</small></h2>
+<p class="muted">
+  For each album: has <code>fix_order.py</code> been run, and what would it change if you ran it now with
+  <b>--tz {{ dr.tz_name if dr else cfg.fix_tz }} --step {{ '%g' % (dr.step if dr else cfg.fix_step) }}</b>
+  (set with <code>FIXORDER_TZ</code> / <code>FIXORDER_STEP</code>)? The ordering logic is the script's own,
+  ported line by line. Nothing on this page writes to your files.
+</p>
+
+{% if not dr %}<p class="muted">Waiting for the first disk scan.</p>{% else %}
+{% set c = dr.counts() %}
+{% set ns = namespace(danger=0, content=0) %}{% for a in dalbums %}{% set ns.danger = ns.danger + a.danger %}{% set ns.content = ns.content + a.danger_content %}{% endfor %}
+
+{% if ns.danger %}
+<p class="alert bad"><b>Do not run fix_order.py on the whole library with these settings:</b>
+  it would modify {{ ns.danger }} file(s) it had already corrected ({{ ns.content }} with a content rewrite).
+  If those are already in Immich, they could be treated as new assets. See the albums marked “changed”.</p>
+{% endif %}
+{% if dr.tz_mismatch %}
+<p class="alert warn">{{ dr.tz_mismatch }} photo(s) have the right time but were written with another timezone than
+  <b>{{ dr.tz_name }}</b>. Offsets found in the files: {% for off, n in dr.offsets.most_common() %}<code>{{ off }}</code> ×{{ n }}{% if not loop.last %}, {% endif %}{% endfor %}.
+  Set <code>FIXORDER_TZ</code> to the zone you used (and always run the script with that same <code>--tz</code>).</p>
+{% endif %}
+
+<div class="grid wide">
+  <div class="tile"><div class="k">Applied</div><div class="v t-ok">{{ c.get('applied', 0) }}<small> album(s)</small></div><div class="s">every file has its date: running again changes nothing</div></div>
+  <div class="tile"><div class="k">Not run</div><div class="v">{{ c.get('not run', 0) }}<small> album(s)</small></div><div class="s">no file corrected yet</div></div>
+  <div class="tile"><div class="k">Partial</div><div class="v t-warn">{{ c.get('partial', 0) }}<small> album(s)</small></div><div class="s">some files not corrected yet (new photos): a run only touches those</div></div>
+  <div class="tile"><div class="k">Changed</div><div class="v {{ 't-bad' if c.get('changed') else '' }}">{{ c.get('changed', 0) }}<small> album(s)</small></div><div class="s">a run would modify already-corrected files</div></div>
+  <div class="tile"><div class="k">Settings found in files</div>
+    <div class="s">offsets: {% for off, n in dr.offsets.most_common(4) %}<code>{{ off }}</code> ×{{ n }}{% if not loop.last %}, {% endif %}{% else %}none yet{% endfor %}</div>
+    <div class="s">step: {% for st, n in dr.steps_seen.most_common(3) %}<code>{{ '%g' % st }} s</code> ×{{ n }}{% if not loop.last %}, {% endif %}{% else %}no batch corrected yet{% endfor %}</div>
+  </div>
+</div>
+
+<div class="tablewrap">
+<table>
+  <thead><tr>
+    <th>fix_order</th><th>Account › Album</th><th class="num">Files</th><th class="num">mtime OK</th><th class="num">Date tag OK</th>
+    <th class="num" title="files fix_order would change if run now">Would change</th>
+    <th class="num" title="already-corrected files it would modify">Already corrected, would change</th>
+    <th>Overlaps</th><th>Ready to run?</th>
+  </tr></thead>
+  <tbody>
+  {% for a in dalbums %}{% set ac = ir.albums.get(a.set_id) %}
+  {% set wm = a.files|selectattr('would_mtime')|list|length %}{% set wc = a.files|selectattr('would_content')|list|length %}
+  <tr class="sev-{{ 'bad' if a.state == 'changed' else 'warn' if a.state == 'partial' or a.overflows or a.inner_collisions else 'ok' }}">
+    <td><span class="dt dt-{{ a.state|replace(' ', '-') }}">{{ a.state }}</span></td>
+    <td class="name"><a href="{{ base }}/album/{{ a.set_id }}">{% if ac %}<bdi dir="auto" class="muted">{{ ac.username or '?' }}</bdi> › <bdi dir="auto">{{ ac.title or a.set_id }}</bdi>{% else %}{{ a.set_id }}{% endif %}</a><div class="sid">{{ a.set_id }}</div></td>
+    <td class="num">{{ a.files|length }}</td>
+    <td class="num">{{ a.files|selectattr('mtime_ok')|list|length }}</td>
+    <td class="num">{{ a.files|selectattr('tag_ok')|list|length }}</td>
+    <td class="num">{% if wm or wc %}mtime {{ wm }} · content {{ wc }}{% else %}0{% endif %}</td>
+    <td class="num">{% if a.danger %}<b class="t-bad">{{ a.danger }}</b>{% if a.danger_content %} <small>({{ a.danger_content }} content)</small>{% else %} <small>(mtime only)</small>{% endif %}{% else %}0{% endif %}</td>
+    <td class="small">
+      {% if a.overflows %}<div class="t-warn">{{ a.overflows|length }} batch(es) spill into the next one</div>{% endif %}
+      {% if a.inner_collisions %}<div class="t-warn">{{ a.inner_collisions }} identical timestamp(s) inside the album</div>{% endif %}
+      {% if a.cross_collisions %}<div class="t-warn" title="{% for o, n in a.cross_collisions.items() %}{{ o }}: {{ n }}; {% endfor %}">{{ a.cross_collisions.values()|sum }} timestamp(s) shared with {{ a.cross_collisions|length }} other album(s)</div>{% endif %}
+      {% if not (a.overflows or a.inner_collisions or a.cross_collisions) %}<span class="muted">none</span>{% endif %}
+    </td>
+    <td class="small">{% if a.ready %}<span class="t-ok">yes</span>{% else %}<span class="t-warn">no</span>{% endif %} · {{ a.ready_reason }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

@@ -30,6 +30,7 @@ services:
       LOG_FILE: /downloads/logs/fb-dl.log   # output.logfile.path from config/gallery-dl.conf
       ALBUMS_FILE: /input/albums.txt        # the -I input file
       DISPLAY_TZ: "UTC"                     # IANA timezone used to display times (log timestamps are UTC)
+      FIXORDER_TZ: "UTC"                    # the --tz you run fix_order.py with
     volumes:
       - ./downloads:/downloads:ro         # same mount as fb-dl, read-only
       - ./input:/input:ro                   # folder mount: sees albums.txt rewrites
