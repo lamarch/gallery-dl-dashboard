@@ -19,6 +19,16 @@
   it would modify {{ ns.danger }} file(s) it had already corrected ({{ ns.content }} with a content rewrite).
   If those are already in Immich, they could be treated as new assets. See the albums marked “changed”.</p>
 {% endif %}
+{% set nsr = namespace(r=0) %}{% for a in dalbums %}{% set nsr.r = nsr.r + a.rounded %}{% endfor %}
+{% if nsr.r %}
+<details class="alert info"><summary>{{ nsr.r }} corrected photo(s) have their mtime rounded to the whole second: harmless, nothing to do</summary>
+  <p class="small">Their EXIF date (with sub-seconds) is exact, and Immich orders photos by it: the timeline is right.
+  Cause: <code>exiftool -P</code>, run by fix_order.py <i>after</i> it set the mtime, restores the mtime with 1-second precision
+  (with <code>--step</code> below 1 s, only the photos on a whole second keep an exact mtime). Running fix_order.py again would
+  restore the fractions, but every changed mtime makes Immich re-process that photo (thumbnails, faces, search): not worth it
+  for albums already in Immich. To avoid it for the next albums, set the mtime <b>after</b> the EXIF write in fix_order.py.</p>
+</details>
+{% endif %}
 {% if dr.tz_mismatch %}
 <p class="alert warn">{{ dr.tz_mismatch }} photo(s) have the right time but were written with another timezone than
   <b>{{ dr.tz_name }}</b>. Offsets found in the files: {% for off, n in dr.offsets.most_common() %}<code>{{ off }}</code> ×{{ n }}{% if not loop.last %}, {% endif %}{% endfor %}.
@@ -51,7 +61,7 @@
     <td><span class="dt dt-{{ a.state|replace(' ', '-') }}">{{ a.state }}</span></td>
     <td class="name"><a href="{{ base }}/album/{{ a.set_id }}">{% if ac %}<bdi dir="auto" class="muted">{{ ac.username or '?' }}</bdi> › <bdi dir="auto">{{ ac.title or a.set_id }}</bdi>{% else %}{{ a.set_id }}{% endif %}</a><div class="sid">{{ a.set_id }}</div></td>
     <td class="num">{{ a.files|length }}</td>
-    <td class="num">{{ a.files|selectattr('mtime_ok')|list|length }}</td>
+    <td class="num">{{ a.files|selectattr('mtime_ok')|list|length }}{% if a.rounded %}<div class="small muted">+{{ a.rounded }} rounded</div>{% endif %}</td>
     <td class="num">{{ a.files|selectattr('tag_ok')|list|length }}</td>
     <td class="num">{% if wm or wc %}mtime {{ wm }} · content {{ wc }}{% else %}0{% endif %}</td>
     <td class="num">{% if a.danger %}<b class="t-bad">{{ a.danger }}</b>{% if a.danger_content %} <small>({{ a.danger_content }} content)</small>{% else %} <small>(mtime only)</small>{% endif %}{% else %}0{% endif %}</td>

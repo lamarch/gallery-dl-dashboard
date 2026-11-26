@@ -95,7 +95,8 @@
   {% for sev, txt in ad.notes %}<p class="alert {{ sev }}">{{ txt }}</p>{% endfor %}
   {% if ad.cross_collisions %}<p class="alert warn">Timestamps shared with other albums: {% for o, n in ad.cross_collisions.items() %}<a href="{{ base }}/album/{{ o }}">{{ o }}</a> ({{ n }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
   {% if ad.interleaved_by %}<p class="alert warn">Photos of other albums inside this album's time span in the Immich timeline: {% for i in ad.interleaved_by[:10] %}<a href="{{ base }}/album/{{ i.b }}">{{ i.b }}</a> ({{ i.inside }}){% if not loop.last %}, {% endif %}{% endfor %}{% if ad.interleaved_by|length > 10 %}…{% endif %}</p>{% endif %}
-  {% set changing = ad.files|rejectattr('state', 'equalto', 'ok')|list %}
+  {% if ad.rounded %}<p class="small muted">{{ ad.rounded }} photo(s) have their mtime rounded to the second by exiftool -P: harmless, Immich orders by the exact EXIF date (see the Dates tab).</p>{% endif %}
+  {% set changing = ad.files|rejectattr('state', 'in', ['ok', 'rounded'])|list %}
   {% if changing %}
   <details {% if ad.danger %}open{% endif %}><summary>{{ changing|length }} file(s) fix_order would touch</summary>
   <div class="tablewrap"><table>

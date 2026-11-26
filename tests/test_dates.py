@@ -5,6 +5,7 @@ import json
 import os
 import struct
 import sys
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -29,6 +30,8 @@ def jpeg(seed, when=None, tz=ZONE):
         ifd = exif.get_ifd(0x8769)
         ifd[0x9003] = local.strftime("%Y:%m:%d %H:%M:%S")
         ifd[0x9011] = f"{off[:3]}:{off[3:]}"
+        if local.microsecond:
+            ifd[0x9291] = f"{local.microsecond // 1000:03d}"    # SubSecTimeOriginal
     buf = io.BytesIO()
     im.save(buf, "JPEG", exif=exif)
     return buf.getvalue()
@@ -217,3 +220,24 @@ def test_interleaving_in_the_current_timeline(tmp_path):
     # the uncorrected album sits at its file time (2023-11-14), far away: no interleave
     assert dr.albums["a.22"].files[0].timeline.year == 2023
     assert [i.b for i in dr.albums["a.20"].interleaved_by] == ["a.21"]
+
+
+def test_mtime_rounded_by_exiftool_is_harmless(tmp_path):
+    """Seen live with --step 0.1: exiftool -P (run after fix_order set the
+    mtime) restores mtimes with 1 s precision; only 1 photo in 10 keeps an
+    exact mtime. EXIF is exact, Immich orders by it: not a 'changed' album."""
+    import math
+    L = Lib(str(tmp_path))
+    n = 25
+    photos = [(str(3000 + i), B, T(B) + timedelta(seconds=round(i * 0.1, 1)), ".jpg") for i in range(n)]
+    d = L.album("a.30", photos)
+    for i, (pid, _, fixed, _) in enumerate(photos):
+        p = os.path.join(d, f"20240501_100000_{pid}.jpg")
+        t = math.floor(fixed.timestamp())                     # what exiftool -P leaves
+        os.utime(p, (t, t))
+    dr, _ = run(L.root, step=0.1)
+    a = dr.albums["a.30"]
+    st = Counter(f.state for f in a.files)
+    assert st == {"rounded": 22, "ok": 3}                   # ranks 0, 10, 20 stay exact
+    assert a.state == "applied" and a.rounded == 22 and a.danger == 0
+    assert sum(f.would_mtime for f in a.files) == 22         # fix_order would still touch them

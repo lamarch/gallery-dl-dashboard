@@ -163,6 +163,7 @@ class FileDate:
     would_mtime: bool        # fix_order would change the mtime
     would_content: bool      # fix_order would change the file's bytes
     corrected: bool          # fix_order already wrote a date tag in this file
+    mtime_rounded: bool = False   # mtime == target cut to the whole second (exiftool -P)
 
     @property
     def mtime_dt(self) -> datetime:
@@ -182,9 +183,18 @@ class FileDate:
         return self.corrected and (self.would_mtime or self.would_content)
 
     @property
+    def rounded(self) -> bool:
+        """Corrected, EXIF exact, only the mtime lost its fraction of a second:
+        exiftool -P restores the mtime with 1 s precision after fix_order set it.
+        Harmless for Immich (it orders by the EXIF date with sub-seconds)."""
+        return self.corrected and self.tag_ok and self.mtime_rounded
+
+    @property
     def state(self) -> str:
         if self.mtime_ok and self.tag_ok:
             return "ok"
+        if self.rounded:
+            return "rounded"
         if not self.corrected and not self.mtime_ok:
             return "never"
         if self.rewrite_corrected:
@@ -216,7 +226,7 @@ class AlbumDates:
         states = Counter(f.state for f in self.files)
         if states["changed"]:
             return "changed"
-        if states["ok"] == len(self.files):
+        if states["ok"] + states["rounded"] == len(self.files):
             return "applied"
         if states["never"] == len(self.files):
             return "not run"
@@ -225,7 +235,12 @@ class AlbumDates:
     @property
     def danger(self) -> int:
         """Already-corrected files fix_order would modify if run now."""
-        return sum(1 for f in self.files if f.rewrite_corrected)
+        return sum(1 for f in self.files if f.rewrite_corrected and not f.rounded)
+
+    @property
+    def rounded(self) -> int:
+        """Corrected files whose mtime was cut to the second (see FileDate.rounded)."""
+        return sum(1 for f in self.files if f.rounded)
 
     @property
     def danger_content(self) -> int:
@@ -412,5 +427,7 @@ def _classify(e, target, rank, n, tz, step, rep) -> FileDate:
         corrected = emb is not None
     else:
         corrected = emb is not None and (emb_ok or abs(emb.timestamp() - mtime) < 1.5)
+    rounded = (not mtime_ok and target.microsecond != 0
+               and abs(mtime - float(int(ts))) < TOLERANCE_MTIME)
     return FileDate(e, target, rank, n, mtime_ok, emb, tag_ok,
-                    not mtime_ok, would_content, corrected)
+                    not mtime_ok, would_content, corrected, rounded)
