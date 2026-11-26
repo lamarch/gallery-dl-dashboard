@@ -188,3 +188,18 @@ def test_fixorder_command_is_shell_safe(tmp_path, monkeypatch):
     assert shlex.split(cmd) == ["python3", "./web-dashboard/tools/fix_order.py", "--tz", "Europe/Berlin", "--step", "0.1",
                                 "--dry-run", f"./dl dir/facebook/{evil}", "./dl dir/facebook/Acc/Новый год (a.2)"]
     assert "--dry-run" not in m.fixorder_cmd([evil], dry=False)
+
+
+def test_albumprops_command(tmp_path, monkeypatch):
+    import shlex
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("INTEGRITY", "0")
+    monkeypatch.setenv("LOG_FILE", str(tmp_path / "none.log"))
+    monkeypatch.setenv("HOST_DOWNLOADS_DIR", "./my dl's")
+    import importlib
+    import app.main as m
+    m = importlib.reload(m)
+    dry, write = shlex.split(m.albumprops_cmd(False)), shlex.split(m.albumprops_cmd(True))
+    assert "./my dl's:/downloads:ro" in dry and "--write" not in dry
+    assert "./my dl's:/downloads" in write and write[-1] == "--write"
+    assert "./dashboard-data:/data:ro" in write          # names are only read

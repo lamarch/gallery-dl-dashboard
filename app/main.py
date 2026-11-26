@@ -218,7 +218,20 @@ def fixorder_cmd(folders: list, dry: bool) -> str:
 
 
 templates.env.filters.update(dt=fmt_dt, bytes=fmt_bytes, dur=fmt_dur, n=fmt_int, ago=ago)
-templates.env.globals.update(fixorder_cmd=fixorder_cmd)
+def albumprops_cmd(write: bool) -> str:
+    """Ready-to-paste apply_albumprops.py command (downloads read-only unless writing)."""
+    import shlex
+    args = ["docker", "run", "--rm", "--user", "1000:1000", "--entrypoint", "python3",
+            "-v", f"{CFG['host_downloads']}:/downloads" + ("" if write else ":ro"),
+            "-v", f"{CFG['host_data']}:/data:ro", "-v", f"{CFG['host_tools']}:/tools:ro",
+            "gallery-dl:latest", "/tools/apply_albumprops.py",
+            "--root", "/downloads/facebook", "--names", "/data/album-names.tsv"]
+    if write:
+        args.append("--write")
+    return " ".join(shlex.quote(a) for a in args)
+
+
+templates.env.globals.update(fixorder_cmd=fixorder_cmd, albumprops_cmd=albumprops_cmd)
 templates.env.globals.update(base=CFG["base"], END_REASONS=END_REASONS, decode_exit=decode_exit,
                              tzname=str(DISPLAY_TZ))
 

@@ -52,9 +52,9 @@
   Albums marked “changed” are never included.</span>
   {% if runnable %}
   <ol class="small">
-    <li>Preview (writes nothing), from your compose folder:<pre>{{ fixorder_cmd(run_folders, True) }}</pre></li>
+    <li>Preview (writes nothing), from your compose folder:<pre class="cmd">{{ fixorder_cmd(run_folders, True) }}</pre></li>
     <li>Check the preview: for each album, “mtime mis à jour” and “EXIF à écrire” should match the
-      “Would change” column below. Then run it for real:<pre>{{ fixorder_cmd(run_folders, False) }}</pre></li>
+      “Would change” column below. Then run it for real:<pre class="cmd">{{ fixorder_cmd(run_folders, False) }}</pre></li>
     <li>Then press <b>Re-scan now</b> on the Disk check tab (or wait a minute): the albums should show <b>applied</b>.</li>
   </ol>
   <p class="small muted">Paths and settings come from <code>HOST_DOWNLOADS_DIR</code>, <code>HOST_FIXORDER</code>, <code>FIXORDER_TZ</code> and <code>FIXORDER_STEP</code>.
@@ -68,8 +68,8 @@
   {% if risks %}<ul class="small">{% for sev, sid, txt in risks %}<li class="t-{{ sev }}"><a href="{{ base }}/album/{{ sid }}">{{ sid }}</a>: {{ txt }}</li>{% endfor %}</ul>{% endif %}
   {% if chosen %}
   <ol class="small">
-    <li>Preview (writes nothing):<pre>{{ fixorder_cmd(chosen_folders, True) }}</pre></li>
-    <li>For real, only if the preview and the risks above are what you want:<pre>{{ fixorder_cmd(chosen_folders, False) }}</pre></li>
+    <li>Preview (writes nothing):<pre class="cmd">{{ fixorder_cmd(chosen_folders, True) }}</pre></li>
+    <li>For real, only if the preview and the risks above are what you want:<pre class="cmd">{{ fixorder_cmd(chosen_folders, False) }}</pre></li>
   </ol>
   {% endif %}
   <p class="small"><a href="{{ base }}/dates">Clear the selection</a></p>

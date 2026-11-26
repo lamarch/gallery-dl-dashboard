@@ -60,3 +60,51 @@
     applyFilter(saved);
   }
 })();
+
+// Copy buttons on command boxes (<pre class="cmd">)
+(function () {
+  "use strict";
+  function fallbackCopy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(ta);
+    return ok;
+  }
+  function copy(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(function () { return true; },
+        function () { return fallbackCopy(text); });
+    }
+    return Promise.resolve(fallbackCopy(text));
+  }
+  document.querySelectorAll("pre.cmd").forEach(function (pre) {
+    var box = document.createElement("div");
+    box.className = "cmdbox";
+    pre.parentNode.insertBefore(box, pre);
+    box.appendChild(pre);
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "copybtn";
+    btn.textContent = "Copy";
+    btn.setAttribute("aria-label", "Copy to clipboard");
+    btn.addEventListener("click", function () {
+      var text = pre.textContent.replace(/\s+$/, "") + (pre.textContent.indexOf("\n") >= 0 ? "\n" : "");
+      copy(text).then(function (ok) {
+        btn.textContent = ok ? "Copied ✓" : "Select & copy";
+        if (!ok) {
+          var r = document.createRange(); r.selectNodeContents(pre);
+          var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        }
+        setTimeout(function () { btn.textContent = "Copy"; }, 1800);
+      });
+    });
+    box.appendChild(btn);
+  });
+})();

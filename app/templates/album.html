@@ -55,7 +55,7 @@
         it is not missing from this one: click <b>Ignore</b>.</li>
       <li>If it really belongs to this album, re-download from that photo to the end of the album with this line
         (gallery-dl starts at that photo, follows the album to its end into the same folder, and skips what you already have):
-        <pre>{% for pid in ac.missing_in_order %}https://www.facebook.com/photo/?fbid={{ pid }}&amp;set={{ ac.set_id }}&amp;setextract
+        <pre class="cmd">{% for pid in ac.missing_in_order %}https://www.facebook.com/photo/?fbid={{ pid }}&amp;set={{ ac.set_id }}&amp;setextract
 {% endfor %}</pre>
         {% if ac.missing_ids|length > 1 %}<span class="muted">Listed in album order: the first line alone re-walks the album from that photo to its end, which also reaches the others when they come after it.</span>{% endif %}</li>
       <li><b>Only add it to <code>albums.txt</code> while gallery-dl is not running</b>: gallery-dl rewrites that
@@ -94,8 +94,8 @@
     Ready to run: {% if ad.ready %}<span class="t-ok">yes</span>{% else %}<span class="t-warn">no</span>{% endif %} ({{ ad.ready_reason }}).</p>
   {% if ad.ready and ad.state in ('not run', 'partial') and ad.danger == 0 and ac and ac.folders %}
   <details class="alert info"><summary>Command to run fix_order.py on this album</summary>
-    <p class="small">Preview first (writes nothing):</p><pre>{{ fixorder_cmd(ac.folders, True) }}</pre>
-    <p class="small">Then for real:</p><pre>{{ fixorder_cmd(ac.folders, False) }}</pre>
+    <p class="small">Preview first (writes nothing):</p><pre class="cmd">{{ fixorder_cmd(ac.folders, True) }}</pre>
+    <p class="small">Then for real:</p><pre class="cmd">{{ fixorder_cmd(ac.folders, False) }}</pre>
   </details>
   {% elif ad.state == 'changed' %}
   <p class="alert bad small">Do not run fix_order.py on this album: it would modify photos it had already corrected (see the list below).</p>

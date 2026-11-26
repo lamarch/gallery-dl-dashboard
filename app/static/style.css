@@ -145,3 +145,11 @@ ul.ids { columns: 3 220px; padding-left: 18px; font-family: var(--mono); font-si
   border: 1px solid var(--line); background: var(--panel); color: var(--text); }
 tr.sev-ok td { background: var(--ok-bg); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* ---- copy buttons ---- */
+.cmdbox { position: relative; margin: 6px 0; }
+pre.cmd { margin: 0; padding: 10px 76px 10px 12px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; word-break: break-all; }
+.copybtn { position: absolute; top: 6px; right: 6px; font: inherit; font-size: 12px; padding: 3px 10px;
+  border-radius: 6px; border: 1px solid var(--accent); background: var(--panel); color: var(--accent); cursor: pointer; }
+.copybtn:hover { background: var(--info-bg); }

@@ -23,8 +23,8 @@
   <summary><b>{{ ns.todo }}</b> album(s) whose <code>.albumprops</code> must be (re)written to apply the names{% if ns.foreign %} · {{ ns.foreign }} with a .albumprops not written by this tool (left untouched){% endif %}</summary>
   <ol class="small">
     <li>Preview (writes nothing), from your compose folder:
-      <pre>docker run --rm --user 1000:1000 --entrypoint python3 -v "{{ cfg.host_downloads }}:/downloads:ro" -v "{{ cfg.host_data }}:/data:ro" -v "{{ cfg.host_tools }}:/tools:ro" gallery-dl:latest /tools/apply_albumprops.py --root /downloads/facebook --names /data/album-names.tsv</pre></li>
-    <li>Apply: same command with <code>/downloads</code> mounted read-write (drop <code>:ro</code>) and <code>--write</code> at the end. Only <code>.albumprops</code> files are written.</li>
+      <pre class="cmd">{{ albumprops_cmd(False) }}</pre></li>
+    <li>Apply (only <code>.albumprops</code> files are written):<pre class="cmd">{{ albumprops_cmd(True) }}</pre></li>
     <li>immich-folder-album-creator: set <code>READ_ALBUM_PROPERTIES=1</code>. For an album that already exists in Immich, <b>rename it in Immich to the new name first</b>: the tool finds albums by name and would otherwise create a second album.</li>
   </ol>
 </details>
