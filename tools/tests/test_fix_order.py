@@ -83,3 +83,26 @@ def test_dashboard_agrees(tmp_path):
     a = build_dates(s._last_lists[0], ZoneInfo("Europe/Berlin"), "Europe/Berlin", 0.1,
                     s.report.albums, None).albums["a.64"]
     assert a.state == "applied" and a.rounded == 0 and a.danger == 0
+
+
+def summary(root, *extra):
+    r = subprocess.run([sys.executable, SCRIPT, "--tz", "Europe/Berlin", "--step", "0.1", *extra, root],
+                       capture_output=True, text=True)
+    out = r.stdout[r.stdout.index("Résumé"):]
+    return {k.strip(): v.strip() for k, v in
+            (l.split(":", 1) for l in out.splitlines()[1:] if l.startswith("  ") and ":" in l)}
+
+
+def test_final_summary(tmp_path):
+    root = str(tmp_path / "lib")
+    album(root, "a.71", 25)
+    album(root, "a.72", 8)
+    s = summary(root, "--dry-run")
+    assert s["albums traités"] == "2 (2 à modifier, 0 déjà à jour)"
+    assert s["mtime à mettre à jour"] == "33 (0 déjà corrects)" and s["EXIF à écrire"] == "33 (0 déjà à jour)"
+    s = summary(root)
+    assert s["photos"] == "33 (33 fichiers)" and s["mtime mis à jour"] == "33 (0 déjà corrects)"
+    assert s["EXIF écrit"] == "33 (0 déjà à jour)" and s["vérification"] == "OK"
+    s = summary(root)
+    assert s["albums traités"] == "2 (0 modifiés, 2 déjà à jour)"
+    assert s["mtime mis à jour"] == "0 (33 déjà corrects)" and s["EXIF écrit"] == "0 (33 déjà à jour)"

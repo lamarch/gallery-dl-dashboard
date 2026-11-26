@@ -68,6 +68,7 @@ TOLERANCE_MTIME = 0.001     # secondes
 
 log = logging.getLogger("fix_order")
 STATS = Counter()
+TOTAUX = Counter()          # pour le résumé final (tous albums confondus)
 
 # clé -> description affichée dans le résumé final (ordre d'affichage)
 CAS = {
@@ -653,34 +654,86 @@ def traite_set(set_id, entries, args, tz):
 
     plan = plan_mtimes(composantes, photos, args.step, tag)
     dry = args.dry_run or args.only_report
+    TOTAUX["albums"] += 1
+    TOTAUX["photos"] += len(photos)
+    TOTAUX["fichiers"] += len(plan)
+    exif_change = 0
 
     exif_txt = ""
     if not args.no_exif:
         if dry and shutil.which("exiftool") is None:
             exif_txt = (f", EXIF : exiftool absent, impossible de comparer "
                         f"({len(plan)} fichier(s) au maximum)")
+            TOTAUX["exif_inconnu"] += len(plan)
         else:
             a_ecrire, deja_ok = filtre_a_ecrire(plan, tz, args.force_exif)
+            TOTAUX["exif_ok"] += deja_ok
             if dry:
                 exif_txt = (f", EXIF à écrire sur {len(a_ecrire)} "
                             f"fichier(s), {deja_ok} déjà à jour")
+                TOTAUX["exif_a_ecrire"] += len(a_ecrire)
+                exif_change = len(a_ecrire)
             else:
                 n = ecrit_exif(a_ecrire, tz, args.exif_missing)
                 exif_txt = (f", EXIF écrit sur {n}/{len(a_ecrire)} "
                             f"fichier(s), {deja_ok} déjà à jour")
+                TOTAUX["exif_ecrits"] += n
+                TOTAUX["exif_a_ecrire"] += len(a_ecrire)
+                exif_change = n
                 if a_ecrire and not args.no_verify \
                         and not args.exif_missing:
                     ko = verifie(a_ecrire, tz)
+                    TOTAUX["verifies"] += len(a_ecrire)
+                    TOTAUX["verif_ko"] += ko
                     exif_txt += (", vérification OK" if ko == 0
                                  else f", vérification : {ko} échec(s)")
 
     # mtime en DERNIER : exiftool -P (écriture EXIF ci-dessus) restitue le
     # mtime à la seconde près ; le poser après garde les fractions de seconde
     modifies, inchanges = applique_mtime(plan, dry)
+    TOTAUX["mtime_maj"] += modifies
+    TOTAUX["mtime_ok"] += inchanges
+    if modifies or exif_change:
+        TOTAUX["albums_modifies"] += 1
 
     log.info(f"{tag} {len(photos)} photos, {modifies} mtime mis à jour, "
              f"{inchanges} déjà corrects{exif_txt}"
              f"{' [dry-run]' if dry else ''}")
+
+
+def resume(dry, args):
+    """Résumé final, tous albums confondus."""
+    t = TOTAUX
+    if not t["albums"]:
+        log.info("Résumé : aucun album traité.")
+        return
+    a_jour = t["albums"] - t["albums_modifies"]
+    titre = "Résumé (DRY-RUN : rien n'a été écrit) :" if dry else "Résumé :"
+    lignes = [
+        ("albums traités", f"{t['albums']} ({t['albums_modifies']} "
+                           f"{'à modifier' if dry else 'modifiés'}, {a_jour} déjà à jour)"),
+        ("photos", f"{t['photos']} ({t['fichiers']} fichiers)"),
+        ("mtime à mettre à jour" if dry else "mtime mis à jour",
+         f"{t['mtime_maj']} ({t['mtime_ok']} déjà corrects)"),
+    ]
+    if args.no_exif:
+        lignes.append(("EXIF", "non traité (--no-exif)"))
+    elif t["exif_inconnu"]:
+        lignes.append(("EXIF", f"exiftool absent : {t['exif_inconnu']} fichier(s) non comparés"))
+    elif dry:
+        lignes.append(("EXIF à écrire", f"{t['exif_a_ecrire']} ({t['exif_ok']} déjà à jour)"))
+    else:
+        ecart = t["exif_a_ecrire"] - t["exif_ecrits"]
+        lignes.append(("EXIF écrit", f"{t['exif_ecrits']} ({t['exif_ok']} déjà à jour"
+                                     f"{f', {ecart} non écrit(s)' if ecart else ''})"))
+        if t["verifies"]:
+            lignes.append(("vérification", "OK" if not t["verif_ko"]
+                           else f"{t['verif_ko']} échec(s) sur {t['verifies']}"))
+        elif t["exif_ecrits"] and (args.no_verify or args.exif_missing):
+            lignes.append(("vérification", "non faite (--no-verify / --exif-missing)"))
+    log.info(titre)
+    for libelle, valeur in lignes:
+        log.info(f"  {libelle:<22}: {valeur}")
 
 
 def version_exiftool():
@@ -755,6 +808,7 @@ def main():
             traite_set(set_id, sets[set_id], args, tz)
 
     log.info("")
+    resume(dry, args)
     log.info(f"Terminé en {time.monotonic() - debut:.1f}s")
     cas = [(CAS[k], STATS[k]) for k in CAS if STATS[k]]
     if cas:
