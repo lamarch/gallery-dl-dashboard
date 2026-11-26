@@ -61,7 +61,8 @@ missing**.
   final and remaining size from the average photo size, with a warning when
   the remaining download may not fit on the disk; progress bars for the
   current album, albums, photos, disk usage, each album and each Facebook page.
-- **Names**: choose the album name Immich should show, kept in
+- **Names**: choose the album name Immich should show (or take the
+  Facebook titles in one click), kept in
   `album-names.tsv` (data folder, editable by hand too) next to the folder
   name and gallery-dl's title. Folders are never renamed:
   `tools/apply_albumprops.py` writes immich-folder-album-creator
@@ -102,6 +103,7 @@ tests/                pytest suite, fake-log generator, demo builder
 tools/seed_archive.py fill a gallery-dl download archive from files already on disk
 tools/apply_albumprops.py write .albumprops (override_name) from album-names.tsv
 tools/fix_order.py    sets mtime + EXIF date of each photo in album order (needs exiftool)
+tools/rename_immich_albums.py renames existing Immich albums to the chosen names (Immich API)
 deploy/               example compose.yml and gallery-dl.conf
 ```
 

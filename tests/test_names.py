@@ -225,3 +225,15 @@ def test_static_files_are_versioned(tmp_path, monkeypatch):
             body = open(os.path.join(HERE, "..", "app", "static", name), "rb").read()
             assert mm.group(1) == hashlib.sha1(body).hexdigest()[:10]
             assert c.get(f"/static/{name}?v={mm.group(1)}").status_code == 200
+
+
+def test_fill_from_facebook_keeps_chosen_names(tmp_path):
+    nf = NamesFile(str(tmp_path / "n.tsv"))
+    nf.sync({"a.1": ("Vacances (a.1)", "Vacances"), "a.2": ("Ete (a.2)", "Ete"),
+             "a.3": ("Same (a.3)", "Same")}, write=True,
+            fb_titles={"a.1": "Vacances 2019 🌞", "a.2": "Été", "a.3": "Same"})
+    nf.set_custom("a.2", "Mon choix")
+    assert nf.fill_from_facebook() == 1                  # a.1 only
+    assert nf.rows["a.1"].custom_name == "Vacances 2019 🌞"
+    assert nf.rows["a.2"].custom_name == "Mon choix"     # never overwritten
+    assert nf.rows["a.3"].custom_name == ""              # same as the folder: nothing to rename

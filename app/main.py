@@ -424,14 +424,27 @@ def _names_rows():
 
 
 @app.get("/names", response_class=HTMLResponse)
-def names_page(request: Request, saved: str = "", error: str = ""):
+def names_page(request: Request, saved: str = "", error: str = "", filled: str = ""):
     try:
         rows, props = _names_rows()
     except OSError as e:
         rows, props, error = [], {}, f"cannot write album-names.tsv: {e}"
     return templates.TemplateResponse(request, "names.html", ctx(
         request, rows=rows, props=props, names=NAMES, dups=NAMES.duplicates(),
-        saved=saved, error=error or NAMES.error, cfg=CFG, page="names"))
+        saved=saved, error=error or NAMES.error, cfg=CFG, filled=filled, page="names"))
+
+
+@app.post("/names/use-facebook")
+def names_use_facebook(request: Request):
+    if not same_origin(request):
+        raise HTTPException(403, "cross-site request refused")
+    from urllib.parse import quote
+    try:
+        _names_rows()                         # make sure Facebook titles are in the file
+        n = NAMES.fill_from_facebook()
+    except OSError as e:
+        return RedirectResponse(f"{CFG['base']}/names?error={quote(str(e))}", status_code=303)
+    return RedirectResponse(f"{CFG['base']}/names?filled={n}", status_code=303)
 
 
 @app.post("/names/{set_id}")
