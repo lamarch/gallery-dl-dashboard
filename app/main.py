@@ -44,7 +44,7 @@ CFG = {
     "host_downloads": os.environ.get("HOST_DOWNLOADS_DIR", "./downloads"),
     "host_data": os.environ.get("HOST_DATA_DIR", "./dashboard-data"),
     "host_tools": os.environ.get("HOST_TOOLS_DIR", "./web-dashboard/tools"),
-    "host_fixorder": os.environ.get("HOST_FIXORDER", "./fix_order.py"),
+    "host_fixorder": os.environ.get("HOST_FIXORDER", "./web-dashboard/tools/fix_order.py"),
 }
 
 
