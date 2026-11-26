@@ -22,7 +22,7 @@ from .acks import Acks
 from .fbdata import FbStore
 from .fbpages import parse_albums_page
 from .ignores import Ignores
-from .names import NamesFile, read_albumprops
+from .names import NamesFile, album_names, read_albumprops
 from .logparse import END_REASONS, LogTail, decode_exit, set_log_tz
 from .status import AlbumRow, album_rows, event_counts, header, log_snapshot
 
@@ -414,21 +414,23 @@ def _names_rows():
                 albums[sid] = (a.folder, a.title)
     fbt = FBSTORE.titles()
     rows = NAMES.sync(albums, write=True, fb_titles=fbt) if NAMES.path else NAMES.sync(albums, fb_titles=fbt)
-    props = {}
+    props, paths = {}, {}
     for r in rows:
         a = disk.albums.get(r.set_id) if disk else None
         props[r.set_id] = read_albumprops(a.path) if a else ("none", None)
-    return rows, props
+        if a:
+            paths[r.set_id] = a.path
+    return rows, props, album_names(rows, paths)
 
 
 @app.get("/names", response_class=HTMLResponse)
 def names_page(request: Request, saved: str = "", error: str = "", filled: str = ""):
     try:
-        rows, props = _names_rows()
+        rows, props, chosen = _names_rows()
     except OSError as e:
-        rows, props, error = [], {}, f"cannot write album-names.tsv: {e}"
+        rows, props, chosen, error = [], {}, {}, f"cannot write album-names.tsv: {e}"
     return templates.TemplateResponse(request, "names.html", ctx(
-        request, rows=rows, props=props, names=NAMES, dups=NAMES.duplicates(),
+        request, rows=rows, props=props, chosen=chosen, names=NAMES, dups=NAMES.duplicates(),
         saved=saved, error=error or NAMES.error, cfg=CFG, filled=filled, page="names"))
 
 

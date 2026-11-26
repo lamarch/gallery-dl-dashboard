@@ -105,22 +105,49 @@ def test_tool_write_only_albumprops(tmp_path):
     tool.main(["--root", str(root), "--names", str(names), "--write"])
     after = snapshot(root)
     changed = {p for p in after if before.get(p) != after[p]}
-    assert changed == {str(root / "Acc" / "Vacances (a.1)" / ".albumprops")}
+    # every album folder gets one (except a.3: someone else's .albumprops)
+    assert changed == {str(root / "Acc" / "Vacances (a.1)" / ".albumprops"),
+                       str(root / "Acc" / "Новый год (a.2)" / ".albumprops")}
     assert read_albumprops(str(root / "Acc" / "Vacances (a.1)")) == ("ours", WEIRD[0])
-    # a .albumprops not written by the tool is never touched
+    assert read_albumprops(str(root / "Acc" / "Новый год (a.2)")) == ("ours", "Новый год")   # folder name
     assert read_albumprops(str(root / "Acc" / "Foreign (a.3)")) == ("foreign", "theirs")
     # idempotent
     tool.main(["--root", str(root), "--names", str(names), "--write"])
     assert snapshot(root) == after
-    # name removed: our file is only removed with --remove-stale
+    # custom name removed: back to the folder name
     nf = NamesFile(str(names))
     nf.load()
     nf.set_custom("a.1", "")
     tool.main(["--root", str(root), "--names", str(names), "--write"])
-    assert os.path.exists(root / "Acc" / "Vacances (a.1)" / ".albumprops")
-    tool.main(["--root", str(root), "--names", str(names), "--write", "--remove-stale"])
-    assert not os.path.exists(root / "Acc" / "Vacances (a.1)" / ".albumprops")
-    assert os.path.exists(root / "Acc" / "Foreign (a.3)" / ".albumprops")
+    assert read_albumprops(str(root / "Acc" / "Vacances (a.1)")) == ("ours", "Vacances")
+    assert read_albumprops(str(root / "Acc" / "Foreign (a.3)")) == ("foreign", "theirs")
+
+
+def test_names_priority_and_duplicates_match_the_dashboard(tmp_path):
+    from app.names import NameRow, album_names
+    root = tmp_path / "facebook"
+    spec = [("A1", "Profile pictures (a.1)", "", ""),       # same folder name in two accounts
+            ("A2", "Profile pictures (a.2)", "", ""),
+            ("A1", "Trip (a.3)", "Summer 2019", ""),         # Facebook title
+            ("A1", "Party (a.4)", "Summer 2019", "Party!"),  # custom beats Facebook
+            ("A1", "x (a.5)", "Same", ""),                   # same name, same account
+            ("A1", "y (a.6)", "same", "")]
+    rows, paths = [], {}
+    for acc, folder, fb, custom in spec:
+        d = root / acc / folder
+        d.mkdir(parents=True)
+        sid = folder[folder.index("(") + 1:-1]
+        rows.append(NameRow(sid, folder, "", fb, custom))
+        paths[sid] = str(d)
+    nf = NamesFile(str(tmp_path / "n.tsv"))
+    nf.rows = {r.set_id: r for r in rows}
+    nf._write()
+    want = {"a.1": ("Profile pictures (A1)", "folder+account"), "a.2": ("Profile pictures (A2)", "folder+account"),
+            "a.3": ("Summer 2019", "facebook"), "a.4": ("Party!", "custom"),
+            "a.5": ("Same (a.5)", "facebook+id"), "a.6": ("same (a.6)", "facebook+id")}
+    assert album_names(rows, paths) == want
+    got = tool.choose_names(tool.album_folders(str(root)), tool.read_names(str(tmp_path / "n.tsv")))
+    assert {os.path.basename(f)[os.path.basename(f).index("(") + 1:-1]: v for f, v in got.items()} == want
 
 
 def test_routes_refuse_cross_site_posts(tmp_path, monkeypatch):

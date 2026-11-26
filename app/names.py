@@ -74,6 +74,44 @@ class NameRow:
         return re.sub(r"\s*\([^()]+\)\s*$", "", self.folder) if self.folder else self.gallerydl_title
 
 
+def album_names(rows, paths: dict) -> dict:
+    """{set_id: (name, source)}: the name tools/apply_albumprops.py writes in
+    each album's .albumprops (keep both in sync). rows: NameRow list; paths:
+    {set_id: album folder path}. source: custom | facebook | folder, plus
+    "+account" / "+id" when a duplicate name had to be told apart."""
+    out = {}
+    for r in rows:
+        f = paths.get(r.set_id)
+        if not f:
+            continue
+        try:
+            fb = clean_name(r.facebook_title)
+        except ValueError:
+            fb = clean_name(r.facebook_title[:MAX_NAME])
+        if r.custom_name:
+            out[r.set_id] = [r.custom_name, "custom", f]
+        elif fb:
+            out[r.set_id] = [fb, "facebook", f]
+        else:
+            base = re.sub(r"\s*\([^()]+\)\s*$", "", os.path.basename(f))
+            out[r.set_id] = [" ".join(base.split()) or r.set_id, "folder", f]
+    for _ in range(2):
+        by = {}
+        for sid, (n, src, f) in out.items():
+            by.setdefault(n.casefold(), []).append(sid)
+        for sids in by.values():
+            if len(sids) < 2:
+                continue
+            accounts = {os.path.basename(os.path.dirname(out[s][2])) for s in sids}
+            for s in sids:
+                n, src, f = out[s]
+                if len(accounts) == len(sids) and "+account" not in src:
+                    out[s] = [f"{n} ({os.path.basename(os.path.dirname(f))})", src + "+account", f]
+                elif "+id" not in src:
+                    out[s] = [f"{n} ({s})", src + "+id", f]
+    return {s: (n, src) for s, (n, src, _) in out.items()}
+
+
 class NamesFile:
     def __init__(self, path: Optional[str]):
         self.path = path
