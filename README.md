@@ -27,9 +27,8 @@ missing**.
   in a `.jpg`...); every album is checked for gaps with the `num` positions and
   the `next_photo_id` chain gallery-dl writes in each JSON, which gives the IDs
   of missing photos even for albums downloaded before the log started; JSON
-  sidecars are checked against filenames and folders; duplicates are found by
-  photo ID, by identical image data (JPEG hashed from the first scan marker, so
-  EXIF rewrites do not hide them) and by visual similarity (thumbnails shown);
+  sidecars are checked against filenames and folders; a photo ID saved twice
+  in an album is reported;
   the download archive is compared with the disk (an archived photo that is
   gone would never be downloaded again); and the log is compared with the
   disk: every photo gallery-dl saw must be on disk, and the last pass that

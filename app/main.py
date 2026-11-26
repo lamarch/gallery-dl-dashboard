@@ -259,6 +259,7 @@ def album(request: Request, set_id: str):
     return templates.TemplateResponse(request, "album.html", ctx(
         request, row=row, jobs=jobs, events=list(reversed(events))[:300], d=d, ac=ac,
         ad=(rep.dates.albums.get(set_id) if rep and rep.dates else None), cfg=CFG,
+        rescanning=set_id in RESCANS,
         page="albums"))
 
 
@@ -321,6 +322,29 @@ def names_save(request: Request, set_id: str, custom_name: str = Form("")):
         raise HTTPException(404, "unknown album")
     except (ValueError, OSError) as e:
         return RedirectResponse(f"{CFG['base']}/names?error={quote(str(e))}", status_code=303)
+
+
+RESCANS: set = set()      # albums with a re-check queued or running
+
+
+@app.post("/album/{set_id}/rescan")
+def album_rescan(request: Request, set_id: str):
+    if not same_origin(request):
+        raise HTTPException(403, "cross-site request refused")
+    if set_id not in RESCANS:
+        RESCANS.add(set_id)
+
+        def job():
+            try:
+                if not SCANNER.rescan_album(set_id):
+                    SCANNER.poke.set()          # no full pass yet: start one
+            except Exception as e:
+                SCANNER.last_error = f"album re-check: {e.__class__.__name__}: {e}"
+            finally:
+                RESCANS.discard(set_id)
+        threading.Thread(target=job, daemon=True, name=f"rescan-{set_id}").start()
+    from urllib.parse import quote
+    return RedirectResponse(f"{CFG['base']}/album/{quote(set_id)}#disk-check", status_code=303)
 
 
 @app.post("/integrity/rescan")

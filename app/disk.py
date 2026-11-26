@@ -54,7 +54,7 @@ class DiskSnapshot:
     duration: float = 0.0
 
 
-RE_ID = re.compile(r"_(\d{5,})\.[^.]+$")
+RE_ID = re.compile(r"_(\d+)\.[^.]+$")
 
 
 def scan(root: str, fs_path: Optional[str] = None) -> DiskSnapshot:

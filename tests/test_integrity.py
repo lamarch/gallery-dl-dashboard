@@ -146,16 +146,12 @@ def test_duplicates_and_formats(lib):
     rep = scan(lib).report
     a4 = rep.albums["a.4"]
     kinds = {i.kind for i in a4.issues}
-    assert {"bad_file", "id_dup", "json_only", "part", "exact_dup"} <= kinds
+    assert {"bad_file", "id_dup", "json_only", "part"} <= kinds
+    assert "exact_dup" not in kinds                      # removed on request
     bad = {os.path.basename(e.path): e.result.problem for e in a4.bad_files}
     assert "AVIF" in bad["20250101_000000_403.jpg"]
-    # identical pixels despite a different header (EXIF rewrite) -> exact duplicate
-    groups = [{e.photo_id for e in g} for g in rep.exact_dups]
-    assert {"101", "401"} in groups
-    # slightly brighter copy -> near-identical pair
-    pairs = [{a.photo_id, b.photo_id} for _, a, b in rep.similar]
-    assert {"102", "402"} in pairs
-    assert not any({"101", "401"} == p for p in pairs)   # exact ones are not repeated
+    assert [{e.name for e in g} for g in rep.id_dups] == [
+        {"20250101_000000_404.jpg", "20250102_000000_404.jpg"}]
 
 
 def test_cache_skips_unchanged_files(lib, monkeypatch):
@@ -297,3 +293,58 @@ def test_rebuild_follows_the_log_without_rereading(tmp_path, monkeypatch):
     s.rebuild()
     a6 = s.report.albums["a.6"]
     assert a6.log_passes == 1 and [p for p, _ in a6.log_not_on_disk] == ["603"]
+
+
+def test_archive_entry_newer_than_the_listing_is_not_missing(tmp_path):
+    """Regression: between full passes the report is rebuilt with the current
+    archive but the old file listing; photos downloaded meanwhile were flagged
+    'in the archive but not on disk'."""
+    L = Lib(str(tmp_path / "fb"))
+    L.chain("A", "Current", "a.50", ["5001", "5002"])
+    arch = str(tmp_path / "fb-archive.sqlite3")
+    write_archive(arch, L.archive)
+    s = ig.IntegrityScanner(L.root, None, arch, max_mbps=1000, current_set=lambda: "a.50")
+    s.scan_once()
+    assert s.report.albums["a.50"].archived_missing == []
+    # gallery-dl downloads one more photo and archives it after the listing
+    L.photo("A", "Current", "a.50", "5003", 3, "", "5001")
+    write_archive_add(arch, [("a.50", "5003"), ("a.50", "5009")])   # 5009: really missing
+    s.rebuild()
+    assert s.report.albums["a.50"].archived_missing == ["5009"]
+
+
+def write_archive_add(path, keys):
+    con = sqlite3.connect(path)
+    con.executemany("INSERT OR IGNORE INTO archive VALUES (?)", [(f"facebook{s}_{p}",) for s, p in keys])
+    con.commit()
+    con.close()
+
+
+def test_rescan_one_album(tmp_path):
+    L = Lib(str(tmp_path / "fb"))
+    L.chain("A", "One", "a.60", ["6001", "6002"])
+    L.chain("A", "Two", "a.61", ["6101"])
+    arch = str(tmp_path / "fb-archive.sqlite3")
+    write_archive(arch, L.archive)
+    s = ig.IntegrityScanner(L.root, None, arch, max_mbps=1000)
+    s.scan_once()
+    listed = s.report.albums["a.60"].listed_at
+    # a new photo arrives in a.60 (chain extended), a.61 untouched
+    p = os.path.join(L.root, "A", "One (a.60)", "20250101_000000_6002.jpg.json")
+    d = json.load(open(p))
+    d["next_photo_id"] = "6003"
+    json.dump(d, open(p, "w"))
+    L.photo("A", "One", "a.60", "6003", 3, "", "6001")
+    calls = []
+    real = ig.check_file
+    ig.check_file = lambda path, st: calls.append(os.path.basename(path)) or real(path, st)
+    try:
+        assert s.rescan_album("a.60")
+    finally:
+        ig.check_file = real
+    a60 = s.report.albums["a.60"]
+    assert a60.media == 3 and a60.chain == "ok" and a60.max_num == 3
+    assert calls == ["20250101_000000_6003.jpg"]           # only the new file is read
+    assert a60.listed_at > listed
+    assert s.report.albums["a.61"].listed_at == listed     # other albums keep their listing
+    assert s.report.albums["a.61"].media == 1

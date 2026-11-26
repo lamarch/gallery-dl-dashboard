@@ -74,7 +74,10 @@ def album_rows(state: LogState, albums: list, disk, current_set: Optional[str]) 
                 r.retries += p.url_retries + p.download_retries
                 if p.status in ("downloaded", "skipped"):
                     have.add(pid)
-                    if p.status == "downloaded":
+                    # only photos the log saw before the disk snapshot can be
+                    # expected in it (the snapshot is up to a minute old)
+                    if p.status == "downloaded" and (
+                            disk is None or p.last_ts.timestamp() < disk.taken - 60):
                         downloaded_ids.add(pid)
                 elif p.status == "missing":
                     missing[pid] = j

@@ -47,8 +47,6 @@ except Exception:  # pragma: no cover - Pillow is in requirements
 
 CHECK_VERSION = 2            # bump when the per-file checks change
 TRANSIENT = 300              # seconds: very new files may still lack their JSON
-SIMILAR_MAX_DIST = 6         # dHash Hamming distance for "near-identical"
-MAX_SIMILAR_PAIRS = 500
 
 EXT_FMT = {".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png", ".gif": "gif",
            ".webp": "webp", ".avif": "avif", ".heic": "heic",
@@ -56,7 +54,7 @@ EXT_FMT = {".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png", ".gif": "gif",
 MEDIA_EXT = set(EXT_FMT)
 VIDEO_FMT = {"mp4"}
 SID_IN_DIR = re.compile(r"\(([^()]+)\)\s*$")
-ID_IN_NAME = re.compile(r"_(\d{5,})\.[^.]+$")
+ID_IN_NAME = re.compile(r"_(\d+)\.[^.]+$")
 
 
 # =============================================================================
@@ -500,6 +498,7 @@ class AlbumCheck:
     first_missing: bool = False
     archived_missing: list = field(default_factory=list)
     not_archived: int = 0
+    listed_at: Optional[float] = None     # when this album's files were listed
     # what the gallery-dl log says about this album
     log_passes: int = 0
     log_end: Optional[str] = None          # end reason of the last pass
@@ -540,10 +539,8 @@ class Report:
     bytes: int = 0
     albums: dict = field(default_factory=dict)             # set_id -> AlbumCheck
     loose: list = field(default_factory=list)             # Issues not tied to an album
-    exact_dups: list = field(default_factory=list)         # [[FileEntry,...]]
     id_dups: list = field(default_factory=list)            # [[FileEntry,...]] same id, same album
     cross_album_ids: list = field(default_factory=list)    # [[FileEntry,...]] same id, other albums
-    similar: list = field(default_factory=list)            # [(dist, FileEntry, FileEntry)]
     archive_entries: Optional[int] = None
     archive_error: Optional[str] = None
     by_key: dict = field(default_factory=dict)             # thumbnail key -> path
@@ -598,7 +595,8 @@ def read_archive(path: Optional[str]):
 def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: list[FileEntry],
                  archive: Optional[set], archive_error: Optional[str],
                  current_set: Optional[str], started: float, now: float,
-                 log: Optional[dict] = None) -> Report:
+                 log: Optional[dict] = None, present_now=None,
+                 album_started: Optional[dict] = None) -> Report:
     """`log`: {set_id: {"passes", "last_end", "last_ids", "photos": {id: (status, ts)}}}
     as built by status.log_snapshot(). `started` is when the files were listed:
     photos the log saw after that cannot be on the list yet and are ignored."""
@@ -726,12 +724,24 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
         for sid, pid in archive:
             if pid not in on_disk.get(sid, ()):
                 lost[sid].append(pid)
+        # The archive is read now, the file listing is older (start of the pass):
+        # photos downloaded since are in the archive but not in the listing.
+        # Look at the disk again before calling anything missing.
+        if lost and present_now is not None:
+            for sid in list(lost):
+                here = present_now(sid)
+                lost[sid] = [pid for pid in lost[sid] if pid not in here]
+                if not lost[sid]:
+                    del lost[sid]
         for sid, pids in lost.items():
             a = album(sid)
             a.archived_missing = sorted(pids)
             a.issues.append(Issue("bad", "archived_missing",
                                   f"{len(pids)} photo(s) in the archive but not on disk: "
                                   f"gallery-dl will NOT download them again"))
+
+    for sid, a in rep.albums.items():
+        a.listed_at = (album_started or {}).get(sid, started)
 
     # ---- log vs disk -----------------------------------------------------------
     disk_ids = {sid: {e.photo_id for e in es if e.photo_id} for sid, es in groups.items()}
@@ -746,8 +756,9 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
         in_prog = sid == current_set
         if in_prog:
             a.in_progress = True
+        cutoff = (album_started or {}).get(sid, started)
         for pid, (st, ts) in L["photos"].items():
-            if pid in have or ts > started - 60:
+            if pid in have or ts > cutoff - 60:
                 continue
             if st == "pending" and in_prog:
                 continue
@@ -819,14 +830,7 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
     if junk:
         rep.loose.append(Issue("info", "other_files", f"{len(junk)} other file(s) (not media/JSON)", junk))
 
-    # ---- duplicates across the library ---------------------------------------
-    by_hash = defaultdict(list)
-    for e in entries:
-        if e.result and e.result.chash:
-            by_hash[e.result.chash].append(e)
-    for v in by_hash.values():
-        if len(v) > 1 and len({x.photo_id for x in v}) > 1:
-            rep.exact_dups.append(v)
+    # ---- the same photo ID in several albums (information only) ----------------
     by_pid = defaultdict(list)
     for e in entries:
         if e.photo_id:
@@ -834,46 +838,8 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
     for v in by_pid.values():
         if len({album_of(x) for x in v}) > 1:
             rep.cross_album_ids.append(v)
-    exact_pairs = {frozenset((x.path, y.path)) for v in rep.exact_dups for x in v for y in v if x is not y}
-    rep.similar = find_similar(entries, exact_pairs)
-    for v in rep.exact_dups:
-        for sid in {album_of(x) for x in v}:
-            album(sid).issues.append(Issue("warn", "exact_dup",
-                                           "identical image saved under different photo IDs",
-                                           [x for x in v]))
     rep.finished = now
     return rep
-
-
-def find_similar(entries, exclude: set) -> list:
-    """Near-identical images via dHash, using 4 x 16-bit bands as buckets."""
-    hashed = [e for e in entries if e.result and e.result.dhash is not None
-              and e.result.dhash not in (0, (1 << 64) - 1)]   # skip flat images
-    buckets = defaultdict(list)
-    for i, e in enumerate(hashed):
-        h = e.result.dhash
-        for band in range(4):
-            buckets[(band, (h >> (16 * band)) & 0xFFFF)].append(i)
-    seen, out = set(), []
-    for idx in buckets.values():
-        if len(idx) < 2 or len(idx) > 200:
-            continue
-        for x in range(len(idx)):
-            for y in range(x + 1, len(idx)):
-                i, j = idx[x], idx[y]
-                if (i, j) in seen:
-                    continue
-                seen.add((i, j))
-                a, b = hashed[i], hashed[j]
-                if a.photo_id and a.photo_id == b.photo_id:
-                    continue
-                if frozenset((a.path, b.path)) in exclude:
-                    continue
-                d = bin(a.result.dhash ^ b.result.dhash).count("1")
-                if d <= SIMILAR_MAX_DIST:
-                    out.append((d, a, b))
-    out.sort(key=lambda t: (t[0], t[1].path))
-    return out[:MAX_SIMILAR_PAIRS]
 
 
 # =============================================================================
@@ -898,6 +864,8 @@ class IntegrityScanner:
         self.fix_tz_name = fix_tz_name
         self.fix_step = fix_step
         self._last_lists = None
+        self._album_started: dict = {}   # set_id -> time of its last re-check
+        self.scan_lock = threading.Lock()
         self.report: Optional[Report] = None
         self.progress = {"phase": "waiting", "done": 0, "total": 0, "started": None, "passes": 0}
         self.lock = threading.Lock()
@@ -930,13 +898,59 @@ class IntegrityScanner:
         if self._last_lists is not None:
             self._publish(*self._last_lists, partial=False)
 
-    def _walk(self):
+    def album_folders(self, sid: str) -> list:
+        """Folders of an album right now: '... (sid)' under root/<account>/,
+        plus folders where the last listing found its files."""
+        found = set()
+        suffix = f"({sid})"
+        try:
+            for acc in os.scandir(self.root):
+                if acc.is_dir(follow_symlinks=False):
+                    for alb in os.scandir(acc.path):
+                        if alb.is_dir(follow_symlinks=False) and alb.name.rstrip().endswith(suffix):
+                            found.add(alb.path)
+        except OSError:
+            pass
+        if self._last_lists:
+            for e in self._last_lists[0]:
+                if e.meta and e.meta.set_id == sid:
+                    found.add(os.path.dirname(e.path))
+        return sorted(found)
+
+    def present_now(self, sid: str) -> set:
+        """Photo IDs of an album's media files currently on disk (names only)."""
+        ids = set()
+        for folder in self.album_folders(sid):
+            try:
+                for f in os.scandir(folder):
+                    if os.path.splitext(f.name)[1].lower() in MEDIA_EXT:
+                        m = ID_IN_NAME.search(f.name)
+                        if m:
+                            ids.add(m.group(1))
+            except OSError:
+                pass
+        return ids
+
+    def _walk(self, folders=None):
+        """List files. folders=None: the whole tree; else only these folders
+        (not recursive), used to re-check one album."""
         media, json_only, other = [], [], []
-        for dirpath, dirs, names in os.walk(self.root):
-            dirs.sort()
+        if folders is None:
+            walker = ((dp, sorted(ns)) for dp, ds, ns in os.walk(self.root) if not ds.sort())
+        else:
+            def walker_gen():
+                for dp in folders:
+                    try:
+                        yield dp, sorted(os.listdir(dp))
+                    except OSError:
+                        continue
+            walker = walker_gen()
+        for dirpath, names in walker:
             present = set(names)
             folder = os.path.relpath(dirpath, self.root)
-            for name in sorted(names):
+            for name in names:
+                if name in (".albumprops", ".albumprops.tmp"):
+                    continue          # immich-folder-album-creator settings, not media
                 path = os.path.join(dirpath, name)
                 base, ext = os.path.splitext(name)
                 ext = ext.lower()
@@ -944,11 +958,11 @@ class IntegrityScanner:
                     st = os.stat(path, follow_symlinks=False)
                 except OSError:
                     continue
+                if not os.path.isfile(path):
+                    continue
                 e = FileEntry(path, name, folder, ext, st.st_size, st.st_ctime,
                               key=hashlib.sha1(os.fsencode(path)).hexdigest()[:20])
                 e._st = st
-                if name in (".albumprops", ".albumprops.tmp"):
-                    continue          # immich-folder-album-creator settings, not media
                 if ext == ".json":
                     if base not in present:
                         json_only.append(e)
@@ -959,15 +973,7 @@ class IntegrityScanner:
                     other.append(e)
         return media, json_only, other
 
-    def scan_once(self):
-        started = time.time()
-        p = self.progress
-        p.update(phase="listing files", done=0, total=0, started=started)
-        media, json_only, other = self._walk()
-        # 1. metadata first (cheap): album grouping and completeness need it
-        p.update(phase="reading metadata", total=len(media))
-        meta_cache = getattr(self, "_meta_cache", {})
-        new_meta_cache = {}
+    def _read_metas(self, media, meta_cache, new_meta_cache):
         for e in media:
             if e.has_json:
                 jp = e.path + ".json"
@@ -978,6 +984,50 @@ class IntegrityScanner:
                     new_meta_cache[k] = e.meta
                 except OSError:
                     e.has_json = False
+
+    def rescan_album(self, sid: str) -> bool:
+        """Re-list one album's folders now, check new/changed files, rebuild
+        the report. Waits for a running full pass to finish."""
+        with self.scan_lock:
+            if self._last_lists is None:
+                return False
+            t = time.time()
+            folders = set(self.album_folders(sid))
+            media, json_only, other, started = self._last_lists
+            nm, nj, no = self._walk(sorted(folders))
+            cache = getattr(self, "_meta_cache", {})
+            self._read_metas(nm, cache, cache)
+            for e in nm:
+                r = self.cache.get(e.path, e._st)
+                if r is None:
+                    r = check_file(e.path, e._st)
+                    self.cache.put(r)
+                e.result = r
+            for e in nj:
+                e.meta = read_meta(e.path)
+            self.cache.commit()
+            keep = lambda e: os.path.dirname(e.path) not in folders  # noqa: E731
+            self._last_lists = ([e for e in media if keep(e)] + nm,
+                                [e for e in json_only if keep(e)] + nj,
+                                [e for e in other if keep(e)] + no, started)
+            self._album_started[sid] = t
+            self._publish(*self._last_lists, partial=False)
+            return True
+
+    def scan_once(self):
+        with self.scan_lock:
+            self._scan_once()
+
+    def _scan_once(self):
+        started = time.time()
+        p = self.progress
+        p.update(phase="listing files", done=0, total=0, started=started)
+        media, json_only, other = self._walk()
+        # 1. metadata first (cheap): album grouping and completeness need it
+        p.update(phase="reading metadata", total=len(media))
+        meta_cache = getattr(self, "_meta_cache", {})
+        new_meta_cache = {}
+        self._read_metas(media, meta_cache, new_meta_cache)
         # 2. file contents (cached; throttled to spare the disk)
         p.update(phase="checking files")
         t0, budget = time.monotonic(), 0.0
@@ -1004,6 +1054,7 @@ class IntegrityScanner:
         self._meta_cache = new_meta_cache
         p["phase"] = "comparing"
         self._last_lists = (media, json_only, other, started)
+        self._album_started = {}          # the full listing is newer than any album re-check
         self._publish(media, json_only, other, started, partial=False)
         p["passes"] += 1
 
@@ -1016,7 +1067,8 @@ class IntegrityScanner:
         archive, aerr = read_archive(self.archive_path)
         log = self.log_snapshot() if self.log_snapshot else None
         rep = build_report(media, json_only, other, archive, aerr,
-                           self.current_set(), started, self.clock(), log)
+                           self.current_set(), started, self.clock(), log,
+                           present_now=self.present_now, album_started=dict(self._album_started))
         rep.partial = partial
         from .dates import build_dates
         from datetime import timezone as _tz

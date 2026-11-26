@@ -46,8 +46,8 @@
   </div>
   <div class="tile">
     <div class="k">Duplicates</div>
-    <div class="v">{{ ir.exact_dups|length + ir.id_dups|length }}<small> group(s)</small></div>
-    <div class="s">{{ ir.similar|length }} near-identical pair(s) · {{ ir.cross_album_ids|length }} photo(s) in several albums</div>
+    <div class="v">{{ ir.id_dups|length }}<small> photo(s) saved twice</small></div>
+    <div class="s">same photo ID twice in an album · {{ ir.cross_album_ids|length }} photo(s) in several albums</div>
   </div>
   <div class="tile">
     <div class="k">Download archive</div>
@@ -86,27 +86,13 @@
   </div>
 </section>
 
-{% if ir.exact_dups or ir.id_dups %}
+{% if ir.id_dups %}
 <section>
-  <h3>Duplicates</h3>
+  <h3>Same photo saved twice</h3>
   {% for g in ir.id_dups %}
-  <div class="dup"><div class="dup-h t-warn">Same photo ID {{ g[0].photo_id }} saved {{ g|length }} times</div>
+  <div class="dup"><div class="dup-h t-warn">Photo ID {{ g[0].photo_id }} saved {{ g|length }} times in the same album</div>
     <div class="thumbs">{% for e in g %}{{ thumb(e, base) }}{% endfor %}</div></div>
   {% endfor %}
-  {% for g in ir.exact_dups %}
-  <div class="dup"><div class="dup-h t-warn">Identical image under {{ g|length }} different photo IDs</div>
-    <div class="thumbs">{% for e in g %}{{ thumb(e, base) }}{% endfor %}</div></div>
-  {% endfor %}
-</section>
-{% endif %}
-
-{% if ir.similar %}
-<section>
-  <h3>Near-identical images <small class="muted">({{ ir.similar|length }} pair(s): resized, re-compressed or edited copies; may be legit bursts)</small></h3>
-  {% for d, a, b in ir.similar[:100] %}
-  <div class="dup"><div class="dup-h">difference {{ d }}/64</div><div class="thumbs">{{ thumb(a, base) }}{{ thumb(b, base) }}</div></div>
-  {% endfor %}
-  {% if ir.similar|length > 100 %}<p class="muted">… {{ ir.similar|length - 100 }} more.</p>{% endif %}
 </section>
 {% endif %}
 
