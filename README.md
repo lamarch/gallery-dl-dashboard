@@ -45,6 +45,12 @@ missing**.
   interleave in the timeline as Immich shows it now (EXIF date, else file time). The ordering
   logic is a line-by-line port of the script and was checked against the real
   script's `--dry-run`.
+- **Names**: choose the album name Immich should show, kept in
+  `album-names.tsv` (data folder, editable by hand too) next to the folder
+  name and gallery-dl's title. Folders are never renamed:
+  `tools/apply_albumprops.py` writes immich-folder-album-creator
+  `.albumprops` files (`override_name`), dry run by default, only ever
+  touching `.albumprops` files and never one it did not write.
 - **Sessions** (one per gallery-dl start): result / exit code, interrupted
   runs (crash, power cut), time spent in each kind of sleep and 429 wait.
 - **Events**: every warning and error, with tracebacks; **Diagnostics**: log
@@ -69,9 +75,11 @@ app/                  the dashboard (FastAPI + Jinja, runs as an unprivileged ui
   albums.py           albums.txt reader (gallery-dl -I comments finished albums out)
   integrity.py        deep read-only disk check (decode, completeness, duplicates, archive)
   dates.py            read-only fix_order.py status (dates, order, overlaps)
+  names.py            album-names.tsv (custom album names) and .albumprops reading
 Dockerfile            builds the dashboard image (only app/ goes in, see .dockerignore)
 tests/                pytest suite, fake-log generator, demo builder
 tools/seed_archive.py fill a gallery-dl download archive from files already on disk
+tools/apply_albumprops.py write .albumprops (override_name) from album-names.tsv
 deploy/               example compose.yml and gallery-dl.conf
 ```
 
@@ -151,11 +159,12 @@ fbdl.example.com {
 | `INTEGRITY_RESCAN_SECONDS` | `900` | pause between passes (only changed files are re-read) |
 | `FIXORDER_TZ` | `DISPLAY_TZ` | the `--tz` you run fix_order.py with (a different one rewrites every EXIF) |
 | `FIXORDER_STEP` | `1` | the `--step` you run fix_order.py with |
+| `HOST_DOWNLOADS_DIR` / `HOST_DATA_DIR` / `HOST_TOOLS_DIR` | `./downloads` / `./dashboard-data` / `./web-dashboard/tools` | host paths, only used to print ready-to-paste commands |
 
 ## Development
 
 ```bash
-pip install pytest fastapi uvicorn jinja2
+pip install -r requirements.txt -r requirements-dev.txt
 python3 -m pytest -q tests tools/tests
 # archive tests against gallery-dl's own code:
 GALLERY_DL_SRC=/path/to/gallery-dl-checkout python3 -m pytest -q tools/tests

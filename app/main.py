@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from collections import OrderedDict
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from . import albums as albums_mod
 from . import disk as disk_mod
 from .integrity import IntegrityScanner
+from .names import NamesFile, read_albumprops
 from .logparse import END_REASONS, LogTail, decode_exit, set_log_tz
 from .status import AlbumRow, album_rows, event_counts, header, log_snapshot
 
@@ -38,6 +39,10 @@ CFG = {
     # the settings fix_order.py is run with (--tz / --step)
     "fix_tz": os.environ.get("FIXORDER_TZ") or os.environ.get("DISPLAY_TZ") or os.environ.get("TZ") or "UTC",
     "fix_step": float(os.environ.get("FIXORDER_STEP", "1")),
+    # host-side folders, only used to print ready-to-paste commands
+    "host_downloads": os.environ.get("HOST_DOWNLOADS_DIR", "./downloads"),
+    "host_data": os.environ.get("HOST_DATA_DIR", "./dashboard-data"),
+    "host_tools": os.environ.get("HOST_TOOLS_DIR", "./web-dashboard/tools"),
 }
 
 
@@ -105,6 +110,21 @@ _cache_path = (os.path.join(CFG["data_dir"], "integrity.sqlite3")
 def _locked_log_snapshot():
     with MON.lock:
         return log_snapshot(MON.tail.state)
+
+
+NAMES = NamesFile(os.path.join(CFG["data_dir"], "album-names.tsv")
+                  if os.path.isdir(CFG["data_dir"]) and os.access(CFG["data_dir"], os.W_OK) else None)
+
+
+def same_origin(request: Request) -> bool:
+    """Reject cross-site form posts (the browser re-sends basic-auth credentials)."""
+    site = request.headers.get("sec-fetch-site")
+    if site is not None:
+        return site in ("same-origin", "none")
+    origin = request.headers.get("origin") or request.headers.get("referer") or ""
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    from urllib.parse import urlsplit
+    return bool(origin) and urlsplit(origin).netloc == host
 
 
 SCANNER = IntegrityScanner(CFG["downloads_root"], _cache_path, CFG["archive_file"],
@@ -262,8 +282,51 @@ def dates_page(request: Request):
         request, dr=dr, dalbums=albums, cfg=CFG, page="dates"))
 
 
+def _names_rows():
+    """Album names merged with what is on disk now."""
+    disk = MON.disk
+    albums = {}
+    if disk:
+        for sid, a in disk.albums.items():
+            if not sid.startswith("?"):
+                albums[sid] = (a.folder, a.title)
+    rows = NAMES.sync(albums, write=True) if NAMES.path else NAMES.sync(albums)
+    props = {}
+    for r in rows:
+        a = disk.albums.get(r.set_id) if disk else None
+        props[r.set_id] = read_albumprops(a.path) if a else ("none", None)
+    return rows, props
+
+
+@app.get("/names", response_class=HTMLResponse)
+def names_page(request: Request, saved: str = "", error: str = ""):
+    try:
+        rows, props = _names_rows()
+    except OSError as e:
+        rows, props, error = [], {}, f"cannot write album-names.tsv: {e}"
+    return templates.TemplateResponse(request, "names.html", ctx(
+        request, rows=rows, props=props, names=NAMES, dups=NAMES.duplicates(),
+        saved=saved, error=error or NAMES.error, cfg=CFG, page="names"))
+
+
+@app.post("/names/{set_id}")
+def names_save(request: Request, set_id: str, custom_name: str = Form("")):
+    if not same_origin(request):
+        raise HTTPException(403, "cross-site request refused")
+    from urllib.parse import quote
+    try:
+        NAMES.set_custom(set_id, custom_name)
+        return RedirectResponse(f"{CFG['base']}/names?saved={quote(set_id)}#a-{quote(set_id)}", status_code=303)
+    except KeyError:
+        raise HTTPException(404, "unknown album")
+    except (ValueError, OSError) as e:
+        return RedirectResponse(f"{CFG['base']}/names?error={quote(str(e))}", status_code=303)
+
+
 @app.post("/integrity/rescan")
-def integrity_rescan():
+def integrity_rescan(request: Request):
+    if not same_origin(request):
+        raise HTTPException(403, "cross-site request refused")
     SCANNER.poke.set()
     return RedirectResponse(f"{CFG['base']}/integrity", status_code=303)
 

@@ -947,6 +947,8 @@ class IntegrityScanner:
                 e = FileEntry(path, name, folder, ext, st.st_size, st.st_ctime,
                               key=hashlib.sha1(os.fsencode(path)).hexdigest()[:20])
                 e._st = st
+                if name in (".albumprops", ".albumprops.tmp"):
+                    continue          # immich-folder-album-creator settings, not media
                 if ext == ".json":
                     if base not in present:
                         json_only.append(e)

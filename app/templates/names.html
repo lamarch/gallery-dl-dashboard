@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Album names · fb-dl{% endblock %}
+{% block content %}
+<h2>Album names</h2>
+<p class="muted">
+  Pick the name each album should have in Immich. Folders are <b>never renamed</b> (an Immich external asset is
+  identified by its path: renaming would create new assets and lose faces, albums and favorites). Instead,
+  <code>tools/apply_albumprops.py</code> writes an <code>.albumprops</code> file with <code>override_name</code>
+  for immich-folder-album-creator. Names are stored in
+  <code>{{ names.path or 'memory only (no writable data folder)' }}</code>, which you can also edit by hand.
+</p>
+{% if error %}<p class="alert bad">{{ error }}</p>{% endif %}
+{% if not names.path %}<p class="alert warn">No writable data folder: names cannot be saved. Mount <code>/data</code>.</p>{% endif %}
+{% if dups %}<p class="alert warn">Same custom name on several albums (immich-folder-album-creator would merge them into one album):
+  {% for k, sids in dups.items() %}<b>{{ k }}</b> ({{ sids|join(', ') }}){% if not loop.last %}; {% endif %}{% endfor %}</p>{% endif %}
+
+{% set ns = namespace(todo=0, foreign=0) %}
+{% for r in rows %}{% set st, val = props.get(r.set_id, ('none', None)) %}
+  {% if r.custom_name and not (st == 'ours' and val == r.custom_name) %}{% set ns.todo = ns.todo + 1 %}{% endif %}
+  {% if st == 'foreign' %}{% set ns.foreign = ns.foreign + 1 %}{% endif %}
+{% endfor %}
+<details class="alert {{ 'warn' if ns.todo else 'info' }}" {% if ns.todo %}open{% endif %}>
+  <summary><b>{{ ns.todo }}</b> album(s) whose <code>.albumprops</code> must be (re)written to apply the names{% if ns.foreign %} · {{ ns.foreign }} with a .albumprops not written by this tool (left untouched){% endif %}</summary>
+  <ol class="small">
+    <li>Preview (writes nothing), from your compose folder:
+      <pre>docker run --rm --user 1000:1000 --entrypoint python3 -v "{{ cfg.host_downloads }}:/downloads:ro" -v "{{ cfg.host_data }}:/data:ro" -v "{{ cfg.host_tools }}:/tools:ro" gallery-dl:latest /tools/apply_albumprops.py --root /downloads/facebook --names /data/album-names.tsv</pre></li>
+    <li>Apply: same command with <code>/downloads</code> mounted read-write (drop <code>:ro</code>) and <code>--write</code> at the end. Only <code>.albumprops</code> files are written.</li>
+    <li>immich-folder-album-creator: set <code>READ_ALBUM_PROPERTIES=1</code>. For an album that already exists in Immich, <b>rename it in Immich to the new name first</b>: the tool finds albums by name and would otherwise create a second album.</li>
+  </ol>
+</details>
+
+<div class="tablewrap">
+<table class="names">
+  <thead><tr><th>Album ID</th><th>Folder (name in Immich today)</th><th>gallery-dl title</th><th>Facebook page title</th><th>Custom name</th><th>.albumprops</th></tr></thead>
+  <tbody>
+  {% for r in rows %}{% set st, val = props.get(r.set_id, ('none', None)) %}
+  <tr id="a-{{ r.set_id }}" class="{{ 'sev-ok' if saved == r.set_id else '' }}">
+    <td class="sid"><a href="{{ base }}/album/{{ r.set_id }}">{{ r.set_id }}</a></td>
+    <td class="name"><bdi dir="auto">{{ r.folder_title or '–' }}</bdi></td>
+    <td class="name"><bdi dir="auto">{{ r.gallerydl_title or '–' }}</bdi></td>
+    <td class="name">{% if r.facebook_title %}<bdi dir="auto">{{ r.facebook_title }}</bdi>{% else %}<span class="muted">–</span>{% endif %}</td>
+    <td>
+      <form method="post" action="{{ base }}/names/{{ r.set_id }}" class="nameform">
+        <input name="custom_name" value="{{ r.custom_name }}" maxlength="200" dir="auto" placeholder="keep “{{ r.folder_title }}”" aria-label="Custom name for {{ r.set_id }}">
+        <button class="btn">Save</button>
+      </form>
+      {% if saved == r.set_id %}<div class="small t-ok">saved</div>{% endif %}
+    </td>
+    <td class="small">
+      {% if st == 'none' %}{% if r.custom_name %}<span class="t-warn">to write</span>{% else %}<span class="muted">none</span>{% endif %}
+      {% elif st == 'ours' %}{% if r.custom_name and val == r.custom_name %}<span class="t-ok">applied</span>{% elif r.custom_name %}<span class="t-warn">outdated: “{{ val }}”</span>{% else %}<span class="t-warn">stale: “{{ val }}”</span>{% endif %}
+      {% elif st == 'foreign' %}<span class="t-warn">not ours{% if val %}: “{{ val }}”{% endif %}</span>
+      {% else %}<span class="t-bad">unreadable</span>{% endif %}
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="6" class="muted">No album on disk yet.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
