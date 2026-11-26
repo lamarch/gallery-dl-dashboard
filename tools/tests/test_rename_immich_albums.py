@@ -70,6 +70,10 @@ def immich(tmp_path):
         {"id": "u4b", "albumName": "Double (a.4)", "albumThumbnailAssetId": "t4"},
         {"id": "u5", "albumName": "Old (a.5)", "albumThumbnailAssetId": "t5"},
         {"id": "u5n", "albumName": "New name 5", "albumThumbnailAssetId": "t5"},   # already created
+        # ALBUM_LEVELS=-2 style name: "<account> <folder>", the gallery-dl "Appel vocal" title bug
+        {"id": "u8", "albumName": "Acc Appel vocal (a.8)", "albumThumbnailAssetId": "t8"},
+        {"id": "u9", "albumName": "Appel vocal", "albumThumbnailAssetId": "t9"},   # regex stripped the id
+        {"id": "u10", "albumName": "My best of", "albumThumbnailAssetId": "t10"},  # made by hand
     ]
     FakeImmich.assets = {
         "t1": {"originalPath": f"{root}/Vacances (a.1)/x.jpg"},
@@ -77,6 +81,9 @@ def immich(tmp_path):
         "t3": {"originalPath": f"{root}/Something else (a.99)/x.jpg"},
         "t4": {"originalPath": f"{root}/Double (a.4)/x.jpg"},
         "t5": {"originalPath": f"{root}/Old (a.5)/x.jpg"},
+        "t8": {"originalPath": f"{root}/Appel vocal (a.8)/x.jpg"},
+        "t9": {"originalPath": f"{root}/Appel vocal (a.9)/x.jpg"},
+        "t10": {"originalPath": f"{root}/Appel vocal (a.10)/x.jpg"},
     }
     FakeImmich.patches = []
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeImmich)
@@ -89,7 +96,10 @@ def immich(tmp_path):
                      "a.4\tDouble (a.4)\t\t\tDouble nom\n"
                      "a.5\tOld (a.5)\t\t\tNew name 5\n"
                      "a.6\tNone (a.6)\t\t\tSix\n"
-                     "a.7\tKeep (a.7)\t\t\t\n", encoding="utf-8")
+                     "a.7\tKeep (a.7)\t\t\t\n"
+                     "a.8\tAppel vocal (a.8)\tAppel vocal\tAnniversaire\tAnniversaire\n"
+                     "a.9\tAppel vocal (a.9)\tAppel vocal\tNoël 2019\tNoël 2019\n"
+                     "a.10\tAppel vocal (a.10)\tAppel vocal\tPâques\tPâques\n", encoding="utf-8")
     yield f"http://127.0.0.1:{srv.server_address[1]}", str(names)
     srv.shutdown()
 
@@ -106,7 +116,9 @@ def test_plan_and_dry_run(immich, capsys, monkeypatch):
     assert FakeImmich.patches == []                             # dry run
     lines = {l.split()[1]: l.split()[0] for l in out.splitlines() if l[:1].isalpha() and " a." in l}
     assert lines == {"a.1": "rename", "a.2": "rename", "a.3": "skip", "a.4": "skip",
-                     "a.5": "conflict", "a.6": "none"}
+                     "a.5": "conflict", "a.6": "none", "a.8": "rename", "a.9": "rename",
+                     "a.10": "skip"}
+    assert "does not come from the folder" in out          # the hand-made album
     assert "DRY RUN" in out
 
 
@@ -114,7 +126,9 @@ def test_write_renames_only_safe_matches(immich, monkeypatch):
     url, names = immich
     run(url, names, "--write", monkeypatch=monkeypatch)
     assert sorted(FakeImmich.patches) == [("u1", {"albumName": "Vacances 2019 🌞"}),
-                                          ("u2", {"albumName": "Été"})]
+                                          ("u2", {"albumName": "Été"}),
+                                          ("u8", {"albumName": "Anniversaire"}),
+                                          ("u9", {"albumName": "Noël 2019"})]
     # second run: nothing left to rename
     FakeImmich.patches = []
     run(url, names, "--write", monkeypatch=monkeypatch)
