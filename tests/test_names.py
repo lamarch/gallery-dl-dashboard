@@ -200,9 +200,9 @@ def test_albumprops_command(tmp_path, monkeypatch):
     import app.main as m
     m = importlib.reload(m)
     dry, write = shlex.split(m.albumprops_cmd(False)), shlex.split(m.albumprops_cmd(True))
-    assert "./my dl's:/downloads:ro" in dry and "--write" not in dry
-    assert "./my dl's:/downloads" in write and write[-1] == "--write"
-    assert "./dashboard-data:/data:ro" in write          # names are only read
+    assert dry == ["python3", "./web-dashboard/tools/apply_albumprops.py", "--root", "./my dl's/facebook",
+                   "--names", "./dashboard-data/album-names.tsv"]
+    assert write == dry + ["--write"]
 
 
 def test_static_files_are_versioned(tmp_path, monkeypatch):

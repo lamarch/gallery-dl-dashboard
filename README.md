@@ -65,7 +65,7 @@ missing**.
   Facebook titles in one click), kept in
   `album-names.tsv` (data folder, editable by hand too) next to the folder
   name and gallery-dl's title. Folders are never renamed:
-  `tools/apply_albumprops.py` writes immich-folder-album-creator
+  `tools/apply_albumprops.py` (host `python3`, as the downloads' owner) writes immich-folder-album-creator
   `.albumprops` files (`override_name`), dry run by default, only ever
   touching `.albumprops` files and never one it did not write.
 - **Sessions** (one per gallery-dl start): result / exit code, interrupted

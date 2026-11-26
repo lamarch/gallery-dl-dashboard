@@ -31,10 +31,11 @@
 <details class="alert {{ 'warn' if ns.todo else 'info' }}" {% if ns.todo %}open{% endif %}>
   <summary><b>{{ ns.todo }}</b> album(s) whose <code>.albumprops</code> must be (re)written to apply the names{% if ns.foreign %} · {{ ns.foreign }} with a .albumprops not written by this tool (left untouched){% endif %}</summary>
   <ol class="small">
-    <li>Preview (writes nothing), from your compose folder:
-      <pre class="cmd">{{ albumprops_cmd(False) }}</pre></li>
-    <li>Apply (only <code>.albumprops</code> files are written):<pre class="cmd">{{ albumprops_cmd(True) }}</pre></li>
-    <li>immich-folder-album-creator: set <code>READ_ALBUM_PROPERTIES=1</code>. For an album that already exists in Immich, <b>rename it in Immich to the new name first</b>: the tool finds albums by name and would otherwise create a second album.</li>
+    <li>Preview (writes nothing), from your compose folder:<pre class="cmd">{{ albumprops_cmd(False) }}</pre></li>
+    <li>Apply (only <code>.albumprops</code> files are written):<pre class="cmd">{{ albumprops_cmd(True) }}</pre>
+      <span class="muted">Run it as the user that owns the downloads (the uid gallery-dl runs as, usually 1000), not with sudo, so the new files have the same owner as the photos.</span></li>
+    <li>immich-folder-album-creator: set <code>READ_ALBUM_PROPERTIES=1</code>. For an album that already exists in Immich, rename it first
+      (<code>tools/rename_immich_albums.py</code>): the tool finds albums by name and would otherwise create a second album.</li>
   </ol>
 </details>
 

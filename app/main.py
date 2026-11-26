@@ -229,13 +229,11 @@ def fixorder_cmd(folders: list, dry: bool) -> str:
 
 templates.env.filters.update(dt=fmt_dt, bytes=fmt_bytes, dur=fmt_dur, n=fmt_int, ago=ago)
 def albumprops_cmd(write: bool) -> str:
-    """Ready-to-paste apply_albumprops.py command (downloads read-only unless writing)."""
+    """Ready-to-paste apply_albumprops.py command, run with the host's python3
+    from the compose folder (dry run unless writing)."""
     import shlex
-    args = ["docker", "run", "--rm", "--user", "1000:1000", "--entrypoint", "python3",
-            "-v", f"{CFG['host_downloads']}:/downloads" + ("" if write else ":ro"),
-            "-v", f"{CFG['host_data']}:/data:ro", "-v", f"{CFG['host_tools']}:/tools:ro",
-            "gallery-dl:latest", "/tools/apply_albumprops.py",
-            "--root", "/downloads/facebook", "--names", "/data/album-names.tsv"]
+    args = ["python3", f"{CFG['host_tools'].rstrip('/')}/apply_albumprops.py",
+            "--root", host_path(""), "--names", f"{CFG['host_data'].rstrip('/')}/album-names.tsv"]
     if write:
         args.append("--write")
     return " ".join(shlex.quote(a) for a in args)
