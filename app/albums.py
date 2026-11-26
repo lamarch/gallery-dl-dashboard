@@ -54,3 +54,24 @@ def input_mtime(path: str) -> Optional[float]:
         return os.stat(path).st_mtime
     except OSError:
         return None
+
+
+def merge_albums(albums: list) -> list:
+    """One entry per album: lines pointing to the same set_id (a plain line
+    and a "...&setextract" re-download line, or a duplicate) are merged; the
+    album is done only when all its lines are. Lines that are not albums
+    (no set_id: profile URLs...) are left out."""
+    out: dict = {}
+    for a in albums:
+        if not a.set_id:
+            continue
+        m = out.get(a.set_id)
+        if m is None:
+            out[a.set_id] = InputAlbum(a.pos, a.line, a.set_id, a.url, a.done)
+        else:
+            m.done = m.done and a.done
+    return list(out.values())
+
+
+def non_album_lines(albums: list) -> int:
+    return sum(1 for a in albums if not a.set_id)

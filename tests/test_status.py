@@ -156,3 +156,33 @@ def test_expected_totals_and_size(tmp_path):
     assert abs(h.est_total_bytes - 18 * bpp) < 1e-6 and abs(h.est_remaining_bytes - 13 * bpp) < 1e-6
     disk.free_bytes = int(10 * bpp)                           # not enough room for 13 photos
     assert header(st, albums, disk, now=st.last_ts, fb={"a.1": (4, False), "a.2": (10, False)}).space_warning
+
+
+def test_totals_count_each_album_once(tmp_path):
+    """albums.txt lines for the same album (a "...&setextract" re-download line,
+    a duplicate) count once; extra photos in one album never hide missing ones
+    in another; lines that are not albums are left out."""
+    import sys as _s
+    _s.path.insert(0, HERE)
+    from test_integrity import Lib
+    from app import disk as disk_mod
+    L = Lib(str(tmp_path / "fb"))
+    L.chain("A", "One", "a.1", ["11", "12", "13", "14", "15"])     # 5 on disk, Facebook says 3
+    L.chain("A", "Two", "a.2", ["21", "22"])                       # 2 on disk, Facebook says 4
+    disk = disk_mod.scan(L.root)
+    p = tmp_path / "albums.txt"
+    p.write_text("# https://www.facebook.com/media/set/?set=a.1&type=3\n"
+                 "# https://www.facebook.com/media/set/?set=a.2&type=3\n"
+                 "https://www.facebook.com/photo/?fbid=23&set=a.2&setextract\n"   # re-download line
+                 "# https://www.facebook.com/media/set/?set=a.1&type=3\n"          # duplicate
+                 "https://www.facebook.com/some.profile/photos_albums\n", encoding="utf-8")
+    albums, _ = read_albums(str(p))
+    fb = {"a.1": (3, False), "a.2": (4, False)}
+    st = st_of(base())
+    h = header(st, albums, disk, now=st.last_ts, fb=fb)
+    assert h.total == 2 and h.done == 1                  # a.2 is being re-walked
+    assert h.photos_expected == 7 and h.photos_have == 7
+    assert h.photos_remaining == 2                       # a.2 misses 2; a.1's extras don't hide them
+    assert h.lines_not_albums == 1
+    rows = album_rows(st, albums, disk, None, fb=fb)
+    assert [r.set_id for r in rows if r.pos] == ["a.1", "a.2"]     # one row per album

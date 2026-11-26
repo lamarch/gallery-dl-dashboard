@@ -32,6 +32,7 @@
       <div class="s">{{ h.photos_have|n }} / {{ '~' if h.albums_count_unknown }}{{ h.photos_expected|round|int|n }} photos{% if h.albums_count_unknown %} <span class="muted" title="{{ h.albums_count_unknown }} album(s) without an imported Facebook count are counted at the average album size">({{ h.albums_count_unknown }} album{{ 's' if h.albums_count_unknown > 1 }} estimated)</span>{% endif %}</div>
       {{ progress(h.photos_have, h.photos_expected, 'photos', 'photos') }}
       {% endif %}
+      {% if h.lines_not_albums %}<div class="s muted" title="albums.txt lines without an album ID (e.g. profile URLs) are not counted">{{ h.lines_not_albums }} line(s) of albums.txt are not albums: not counted</div>{% endif %}
       <div class="s">{{ h.photos_last_hour }} photos in the last hour</div>
     </div>
     <div class="tile">

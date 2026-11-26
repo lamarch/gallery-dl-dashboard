@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from statistics import mean
 from typing import Optional
 
+from .albums import merge_albums, non_album_lines
 from .logparse import END_OK, END_REASONS, LogState, decode_exit
 
 STALL_GRACE = timedelta(minutes=3)      # after a scheduled sleep/wait should end
@@ -63,6 +64,7 @@ def album_rows(state: LogState, albums: list, disk, current_set: Optional[str],
                fb_titles: Optional[dict] = None) -> list[AlbumRow]:
     now = now or datetime.now(timezone.utc)
     fb, fb_titles = fb or {}, fb_titles or {}
+    albums = merge_albums(albums)
     jobs_by_set: dict = {}
     for j in state.jobs:
         jobs_by_set.setdefault(j.set_id, []).append(j)
@@ -208,6 +210,7 @@ def plan_queue(state: LogState, albums: list, disk, fb: Optional[dict], now: dat
     """Expected start/end of the current album and of every pending album, in
     albums.txt order: 1 h pause + photos x measured seconds per photo.
     -> (etas {set_id: Eta}, end of the queue, seconds per photo, average size)"""
+    albums = merge_albums(albums)
     spp = seconds_per_photo(state) or DEFAULT_SPP
     done_sizes = [disk.albums[a.set_id].media for a in albums
                   if a.done and disk and a.set_id in disk.albums and disk.albums[a.set_id].media]
@@ -284,7 +287,9 @@ class Header:
     # totals for the albums in albums.txt
     photos_expected: Optional[float] = None      # Facebook counts (+ average size when unknown)
     photos_have: int = 0                         # on disk for those albums
-    albums_count_unknown: int = 0                # albums without a Facebook count
+    albums_count_unknown: int = 0                # pending albums without a Facebook count (estimated)
+    photos_remaining: Optional[float] = None     # sum over albums of max(expected - on disk, 0)
+    lines_not_albums: int = 0                    # albums.txt lines that are not albums (left out)
     bytes_per_photo: Optional[float] = None
     est_total_bytes: Optional[float] = None      # expected photos x average photo size
     est_remaining_bytes: Optional[float] = None
@@ -296,6 +301,8 @@ class Header:
 def header(state: LogState, albums: list, disk, now: Optional[datetime] = None,
            acked=None, fb: Optional[dict] = None) -> Header:
     now = now or datetime.now(timezone.utc)
+    raw_albums = albums
+    albums = merge_albums(albums)
     s = state.session
     if s is None:
         return Header("nodata", "No log data yet")
@@ -381,23 +388,39 @@ def header(state: LogState, albums: list, disk, now: Optional[datetime] = None,
         h.disk_media, h.disk_bytes = disk.total_media, disk.total_bytes
         h.free_bytes, h.fs_bytes = disk.free_bytes, disk.fs_bytes
 
-    # ---- expected totals and size --------------------------------------------
+    # ---- expected totals and size (one entry per album in albums.txt) --------
+    h.lines_not_albums = non_album_lines(raw_albums)
     if albums:
         fbc = fb or {}
-        sizes = [disk.albums[a.set_id].media for a in albums
-                 if a.done and disk and a.set_id in disk.albums and disk.albums[a.set_id].media]
-        avg_album = mean(sizes) if sizes else None
-        known = [fbc[a.set_id][0] for a in albums if a.set_id in fbc and fbc[a.set_id][0] is not None]
-        h.albums_count_unknown = len(albums) - len(known)
-        if known or avg_album:
-            h.photos_expected = sum(known) + h.albums_count_unknown * (avg_album or 0)
-        if disk:
-            h.photos_have = sum(disk.albums[a.set_id].media for a in albums if a.set_id in disk.albums)
-            if disk.total_media:
-                h.bytes_per_photo = disk.total_bytes / disk.total_media
+
+        def have_of(sid):
+            d = disk.albums.get(sid) if disk else None
+            return len(d.media_ids) if d else 0
+
+        done_sizes = [have_of(a.set_id) for a in albums if a.done and have_of(a.set_id)]
+        avg_album = mean(done_sizes) if done_sizes else None
+        expected = have = remaining = 0.0
+        unknown = 0
+        for a in albums:
+            n_disk = have_of(a.set_id)
+            c = fbc.get(a.set_id, (None, False))[0]
+            if c is None:
+                if a.done:
+                    c = n_disk                 # finished, no Facebook count: what is on disk
+                else:
+                    unknown += 1               # estimated at the average album size
+                    c = max(avg_album or 0, n_disk)
+            expected += c
+            have += n_disk
+            remaining += max(c - n_disk, 0)    # per album: extra photos never hide missing ones
+        h.albums_count_unknown = unknown
+        if expected:
+            h.photos_expected, h.photos_have, h.photos_remaining = expected, int(have), remaining
+        if disk and disk.total_media:
+            h.bytes_per_photo = disk.total_bytes / disk.total_media
         if h.photos_expected is not None and h.bytes_per_photo:
             h.est_total_bytes = h.photos_expected * h.bytes_per_photo
-            h.est_remaining_bytes = max(h.photos_expected - h.photos_have, 0) * h.bytes_per_photo
+            h.est_remaining_bytes = remaining * h.bytes_per_photo
             if disk and disk.free_bytes is not None:
                 h.space_warning = h.est_remaining_bytes > disk.free_bytes * 0.9
 
