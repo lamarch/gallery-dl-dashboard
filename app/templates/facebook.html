@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fbset, verdict %}
+{% from "_macros.html" import fbset, verdict, progress %}
 {% block title %}Facebook · fb-dl{% endblock %}
 {% block content %}
 <h2>Facebook albums</h2>
@@ -31,6 +31,7 @@
       <button class="btn small" title="Remove this page's albums from the dashboard">Forget</button></form></h3>
   {% if sm.no_order %}<p class="alert warn small">This page was imported with an older version that did not keep
     Facebook's album order: <b>import it again</b> (same saved file is fine) to get the # column and the downloaded range.</p>{% endif %}
+  {{ progress(sm.n, sm.total, 'albums downloaded or queued', 'page') }}
   <p class="alert info small">{% if sm.no_order %}Order unknown.{% elif sm.n %}
     Downloaded or queued: <b>{{ sm.n }}</b> of {{ sm.total }} · from <b>#{{ sm.first }}</b> to <b>#{{ sm.last }}</b>
     {% if sm.gaps %} · <span class="t-warn">skipped in between: {% for g in sm.gaps %}<a href="#fb-{{ g.sid }}">#{{ g.fb.pos }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</span>{% else %} · no gap{% endif %}

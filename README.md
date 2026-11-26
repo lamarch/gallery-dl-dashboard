@@ -56,6 +56,11 @@ missing**.
   the photos on disk and the last complete pass (✓ / ✗); for the current and
   pending albums, the estimated end (1 h pause + photos x measured time per
   photo, in albums.txt order), also shown in the header for the current album.
+- **Totals and size**: expected photos for all albums in albums.txt (Facebook
+  counts, average album size where unknown) vs on disk, and the estimated
+  final and remaining size from the average photo size, with a warning when
+  the remaining download may not fit on the disk; progress bars for the
+  current album, albums, photos, disk usage, each album and each Facebook page.
 - **Names**: choose the album name Immich should show, kept in
   `album-names.tsv` (data folder, editable by hand too) next to the folder
   name and gallery-dl's title. Folders are never renamed:

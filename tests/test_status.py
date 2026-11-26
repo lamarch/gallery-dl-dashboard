@@ -133,3 +133,26 @@ def test_pending_album_is_not_flagged_against_facebook():
     r9 = next(r for r in rows if r.set_id == "a.9")
     assert r9.state == "pending" and r9.fb_count == 30 and r9.flags == [] and r9.expected_ok is None
     assert r9.title == "Plus tard" and r9.eta is not None
+
+
+def test_expected_totals_and_size(tmp_path):
+    import sys as _s
+    _s.path.insert(0, HERE)
+    from test_integrity import Lib
+    from app import disk as disk_mod
+    from app.albums import InputAlbum
+    L = Lib(str(tmp_path / "fb"))
+    L.chain("A", "One", "a.1", ["11", "12", "13", "14"])     # done, 4 on disk
+    L.chain("A", "Two", "a.2", ["21"])                        # current, 1 on disk
+    disk = disk_mod.scan(L.root)
+    albums = [InputAlbum(1, 1, "a.1", "u", True), InputAlbum(2, 2, "a.2", "u", False),
+              InputAlbum(3, 3, "a.3", "u", False)]           # a.3: no Facebook count
+    st = st_of(base())
+    h = header(st, albums, disk, now=st.last_ts, fb={"a.1": (4, False), "a.2": (10, False)})
+    assert h.albums_count_unknown == 1
+    assert h.photos_expected == 4 + 10 + 4                    # a.3 at the average album size (4)
+    assert h.photos_have == 5
+    bpp = disk.total_bytes / disk.total_media
+    assert abs(h.est_total_bytes - 18 * bpp) < 1e-6 and abs(h.est_remaining_bytes - 13 * bpp) < 1e-6
+    disk.free_bytes = int(10 * bpp)                           # not enough room for 13 photos
+    assert header(st, albums, disk, now=st.last_ts, fb={"a.1": (4, False), "a.2": (10, False)}).space_warning

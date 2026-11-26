@@ -34,3 +34,10 @@
 <a class="fb" rel="noreferrer noopener" target="_blank" title="Open the account's albums on Facebook" href="https://www.facebook.com/profile.php?id={{ uid|urlencode }}&amp;sk=photos_albums">↗&nbsp;account</a>
 {%- endif -%}
 {%- endmacro %}
+
+{% macro progress(value, total, label='', cls='') -%}
+{%- if total and total > 0 -%}
+{%- set pct = [100.0 * (value or 0) / total, 100.0]|min -%}
+<div class="bar {{ cls }}{{ ' over' if value and value > total }}" role="progressbar" aria-valuemin="0" aria-valuemax="{{ total|round|int }}" aria-valuenow="{{ (value or 0)|round|int }}" title="{{ label ~ ': ' if label }}{{ (value or 0)|round|int }} / {{ total|round|int }} ({{ pct|round|int }} %)"><i style="width:{{ pct|round(1) }}%"></i></div>
+{%- endif -%}
+{%- endmacro %}

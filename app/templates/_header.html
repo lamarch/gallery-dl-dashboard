@@ -1,3 +1,4 @@
+{% from "_macros.html" import progress %}
 <header class="live state-{{ h.state }}">
   <div class="row1">
     <span class="badge state-{{ h.state }}">{{ h.label }}</span>
@@ -18,6 +19,7 @@
     <div class="tile">
       <div class="k">This album</div>
       <div class="v">{{ h.album_seen|n }} <small>photos seen{% if h.album_expected %} / {{ h.album_expected|n }} expected{% endif %}</small></div>
+      {% if h.album_expected %}{{ progress(h.album_seen, h.album_expected, 'this album') }}{% endif %}
       <div class="s">{{ h.album_downloaded|n }} new · {{ h.album_skipped|n }} already had{% if h.album_missing %} · <span class="t-bad">{{ h.album_missing }} missing</span>{% endif %} · {{ h.album_bytes|bytes }}</div>
       <div class="s">{% if h.album_errors %}<span class="t-bad">{{ h.album_errors }} error(s)</span>{% else %}0 errors{% endif %} · {{ h.album_retries }} retries</div>
       {% if h.album_eta_at %}<div class="s">album done ≈ {{ h.album_eta_at|dt('%H:%M') }} (<b data-until="{{ (h.album_eta_at.timestamp()*1000)|int }}">{{ h.album_eta_seconds|dur }}</b>)</div>{% endif %}
@@ -25,7 +27,11 @@
     <div class="tile">
       <div class="k">Progress</div>
       <div class="v">{{ h.done }}<small>/{{ h.total }} albums done</small></div>
-      {% if h.total %}<div class="bar"><i style="width:{{ (100*h.done/h.total)|round(1) }}%"></i></div>{% endif %}
+      {{ progress(h.done, h.total, 'albums') }}
+      {% if h.photos_expected %}
+      <div class="s">{{ h.photos_have|n }} / {{ '~' if h.albums_count_unknown }}{{ h.photos_expected|round|int|n }} photos{% if h.albums_count_unknown %} <span class="muted" title="{{ h.albums_count_unknown }} album(s) without an imported Facebook count are counted at the average album size">({{ h.albums_count_unknown }} album{{ 's' if h.albums_count_unknown > 1 }} estimated)</span>{% endif %}</div>
+      {{ progress(h.photos_have, h.photos_expected, 'photos', 'photos') }}
+      {% endif %}
       <div class="s">{{ h.photos_last_hour }} photos in the last hour</div>
     </div>
     <div class="tile">
@@ -44,7 +50,9 @@
       <div class="k">On disk</div>
       <div class="v">{{ h.disk_media|n }} <small>files</small></div>
       <div class="s">{{ h.disk_bytes|bytes }} of photos</div>
-      <div class="s">{% if h.free_bytes is not none %}{{ h.free_bytes|bytes }} free of {{ h.fs_bytes|bytes }}{% endif %}</div>
+      {% if h.est_total_bytes %}<div class="s">expected in total ≈ {{ h.est_total_bytes|bytes }} · <span class="{{ 't-bad' if h.space_warning }}">≈ {{ h.est_remaining_bytes|bytes }} still to download</span></div>{% endif %}
+      <div class="s">{% if h.free_bytes is not none %}{{ h.free_bytes|bytes }} free of {{ h.fs_bytes|bytes }}{% if h.space_warning %} · <b class="t-bad">may not be enough</b>{% endif %}{% endif %}</div>
+      {% if h.fs_bytes %}{{ progress(h.fs_bytes - h.free_bytes, h.fs_bytes, 'disk used', 'disk' ~ (' full' if h.space_warning else '')) }}{% endif %}
       {% if ir %}{% set _c = ir.counts() %}
       <div class="s"><a href="{{ base }}/integrity">check: {{ _c.get('verified', 0) }}/{{ ir.albums|length }} albums verified{% if _c.get('problems') %} · <span class="t-bad">{{ _c.get('problems') }} with problems</span>{% endif %}</a>{% if ip.phase == 'checking files' %} · scanning {{ ip.done|n }}/{{ ip.total|n }}{% endif %}</div>
       {% endif %}

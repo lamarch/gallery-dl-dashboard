@@ -281,6 +281,14 @@ class Header:
     spp: Optional[float] = None
     avg_album: Optional[float] = None
     eta_from_fb: int = 0              # remaining albums whose size comes from Facebook
+    # totals for the albums in albums.txt
+    photos_expected: Optional[float] = None      # Facebook counts (+ average size when unknown)
+    photos_have: int = 0                         # on disk for those albums
+    albums_count_unknown: int = 0                # albums without a Facebook count
+    bytes_per_photo: Optional[float] = None
+    est_total_bytes: Optional[float] = None      # expected photos x average photo size
+    est_remaining_bytes: Optional[float] = None
+    space_warning: bool = False                  # remaining download may not fit
     album_eta_at: Optional[datetime] = None      # expected end of the current album
     album_eta_seconds: Optional[float] = None
 
@@ -372,6 +380,26 @@ def header(state: LogState, albums: list, disk, now: Optional[datetime] = None,
     if disk:
         h.disk_media, h.disk_bytes = disk.total_media, disk.total_bytes
         h.free_bytes, h.fs_bytes = disk.free_bytes, disk.fs_bytes
+
+    # ---- expected totals and size --------------------------------------------
+    if albums:
+        fbc = fb or {}
+        sizes = [disk.albums[a.set_id].media for a in albums
+                 if a.done and disk and a.set_id in disk.albums and disk.albums[a.set_id].media]
+        avg_album = mean(sizes) if sizes else None
+        known = [fbc[a.set_id][0] for a in albums if a.set_id in fbc and fbc[a.set_id][0] is not None]
+        h.albums_count_unknown = len(albums) - len(known)
+        if known or avg_album:
+            h.photos_expected = sum(known) + h.albums_count_unknown * (avg_album or 0)
+        if disk:
+            h.photos_have = sum(disk.albums[a.set_id].media for a in albums if a.set_id in disk.albums)
+            if disk.total_media:
+                h.bytes_per_photo = disk.total_bytes / disk.total_media
+        if h.photos_expected is not None and h.bytes_per_photo:
+            h.est_total_bytes = h.photos_expected * h.bytes_per_photo
+            h.est_remaining_bytes = max(h.photos_expected - h.photos_have, 0) * h.bytes_per_photo
+            if disk and disk.free_bytes is not None:
+                h.space_warning = h.est_remaining_bytes > disk.free_bytes * 0.9
 
     # ---- ETA (same queue as the albums table) ----------------------------------
     if h.state not in ("finished", "finished_err") and albums:

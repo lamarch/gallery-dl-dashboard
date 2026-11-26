@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import verdict, fbset %}
+{% from "_macros.html" import verdict, fbset, progress %}
 {% block content %}
 {% if albums_error %}<p class="alert bad">{{ albums_error }}</p>{% endif %}
 {% if flagged %}
@@ -40,7 +40,7 @@
       <td>{{ r.end_label or '–' }}</td>
       <td class="num">{% if r.passes %}{{ r.downloaded|n }} / {{ r.skipped|n }}{% else %}–{% endif %}</td>
       <td class="num">{% if r.missing %}<b class="t-bad">{{ r.missing|length }}</b>{% else %}0{% endif %}</td>
-      <td class="num">{{ r.disk_media|n }}</td>
+      <td class="num">{{ r.disk_media|n }}{% if r.fb_count %}{{ progress(r.disk_media or 0, r.fb_count, 'on disk / Facebook', 'mini' ~ (' bad' if r.expected_ok is sameas false else ' ok' if r.expected_ok else '')) }}{% endif %}</td>
       <td class="num">{% if r.fb_count is not none %}<span class="{{ 't-ok' if r.expected_ok else 't-bad' if r.expected_ok is sameas false else '' }}" title="Facebook: {{ r.fb_count }}{% if r.log_full is not none %} · last complete pass: {{ r.log_full }}{% endif %} · on disk: {{ r.disk_media if r.disk_media is not none else 0 }}">{{ '~' if r.fb_approx }}{{ r.fb_count|n }}{% if r.expected_ok %} ✓{% elif r.expected_ok is sameas false %} ✗{% endif %}</span>{% else %}–{% endif %}</td>
       <td class="num">{{ r.disk_bytes|bytes }}</td>
       <td class="nowrap small">{{ r.first_start|dt('%d/%m/%y %H:%M') if r.first_start else '–' }}</td>

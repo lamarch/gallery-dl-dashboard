@@ -159,3 +159,15 @@ a.fb { font-family: system-ui, sans-serif; font-size: 11px; white-space: nowrap;
 .fblinks { margin: -4px 0 12px; display: flex; gap: 12px; }
 table.fbtable tr.fb-not-downloaded td { color: var(--muted); }
 table.fbtable tr.fb-not-downloaded td:first-child { box-shadow: none; }
+
+/* ---- progress bars ---- */
+.bar { position: relative; height: 6px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 5px 0 3px; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width .4s ease; }
+.bar.photos i { background: var(--ok); }
+.bar.disk i { background: var(--muted); }
+.bar.disk.full i, .bar.bad i { background: var(--bad); }
+.bar.ok i { background: var(--ok); }
+.bar.over i { background: var(--warn); }
+.bar.mini { height: 4px; width: 64px; margin: 4px 0 0 auto; }
+.bar.page { height: 8px; margin: 6px 0 10px; max-width: 520px; }
+@media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
