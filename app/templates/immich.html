@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fbset, progress %}
+{% block title %}Immich · fb-dl{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h2>Immich</h2>
+  {% if w.configured %}<form method="post" action="{{ base }}/immich/refresh"><button class="btn"{% if w.busy %} disabled{% endif %}>{{ 'Reading Immich…' if w.busy else 'Refresh now' }}</button></form>{% endif %}
+</div>
+<p class="muted">
+  Read-only: is every downloaded album in Immich, with all its photos, in one album with the expected name
+  (Names tab)? The dashboard only reads albums and searches assets; it never changes anything in Immich.
+  What it reads stays in memory.
+</p>
+
+{% if not w.configured %}
+<div class="alert info">
+  <p><b>Not set up.</b> Give the dashboard a read-only Immich API key:</p>
+  <ol class="small">
+    <li>In Immich: Account settings → API keys → New API key, with only the <code>album.read</code> and <code>asset.read</code> permissions.</li>
+    <li>Save it in a file next to your compose file, readable only by the uid the dashboard runs as (the <code>user:</code> of the webui service):
+      <pre class="cmd">install -m 600 /dev/null immich-dashboard.key
+nano immich-dashboard.key   # paste the key, save</pre></li>
+    <li>In your compose file, on the webui service (and the top-level <code>secrets:</code>):
+      <pre class="cmd">    environment:
+      IMMICH_URL: "http://immich-server:2283"   # as seen from this container
+    secrets:
+      - immich_api_key
+
+secrets:
+  immich_api_key:
+    file: ./immich-dashboard.key</pre>
+      <span class="muted">The webui container must be on a network that reaches Immich (or use Immich's public URL). Never put the key itself in an environment variable.</span></li>
+    <li><code>docker compose up -d webui</code></li>
+  </ol>
+</div>
+{% else %}
+{% if w.error %}<p class="alert bad">Last refresh failed: {{ w.error }}</p>{% endif %}
+{% if not w.snap %}
+  <p class="alert info">{{ 'Reading Immich…' if w.busy else 'No data yet.' }}</p>
+{% elif not rep %}
+  <p class="alert info">Waiting for the first disk scan.</p>
+{% else %}{% set c = rep.counts() %}{% set t = rep.totals %}
+<div class="grid wide">
+  <div class="tile">
+    <div class="k">Albums</div>
+    <div class="v">{{ c.get('ok', 0) + c.get('info', 0) }}<small>/{{ t.folders }} fine</small></div>
+    <div class="s"><span class="t-bad">{{ c.get('bad', 0) }} with problems</span> · <span class="t-warn">{{ c.get('warn', 0) }} with warnings</span></div>
+    {{ progress(c.get('ok', 0) + c.get('info', 0), t.folders, 'albums fine') }}
+  </div>
+  <div class="tile">
+    <div class="k">Photos in Immich</div>
+    <div class="v">{{ t.immich|n }}<small>/{{ t.disk|n }} on disk</small></div>
+    <div class="s">{{ t.albums }} album(s) linked to a folder · {{ rep.unlinked|length }} other album(s)</div>
+    {{ progress(t.immich, t.disk, 'photos in Immich') }}
+  </div>
+  <div class="tile">
+    <div class="k">Last read</div>
+    <div class="v">{{ (now.timestamp() - w.snap.taken)|dur }}<small> ago</small></div>
+    <div class="s">{{ t.assets_seen|n }} assets, {{ t.immich_albums }} albums read in {{ w.snap.duration|round(1) }} s · every {{ (w.every)|dur }}</div>
+    <div class="s muted">{% if w.snap.prefix %}downloads found under the Immich path <code>{{ w.snap.prefix }}</code>{% else %}downloads not found in Immich yet: the whole library is read{% endif %}</div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <h3>Albums</h3>
+  <span class="small">{% if show == 'all' %}<a href="{{ base }}/immich">only those with something to look at</a>{% else %}<a href="{{ base }}/immich?show=all">show all {{ t.folders }}</a>{% endif %}</span>
+</div>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Album ID</th><th>Expected name</th><th class="num">Disk</th><th class="num">Immich</th><th>Immich album(s)</th><th>To look at</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr class="sev-{{ r.severity }}">
+    <td class="sid"><a href="{{ base }}/album/{{ r.set_id }}">{{ r.set_id }}</a> {{ fbset(r.set_id) }}</td>
+    <td class="name"><bdi dir="auto">{{ r.expected }}</bdi></td>
+    <td class="num">{{ r.disk|n }}</td>
+    <td class="num">{{ r.immich|n }}{{ progress(r.immich, r.disk, 'in Immich') }}</td>
+    <td class="name small">{% for a in r.albums %}<div><bdi dir="auto">{{ a.name }}</bdi> <span class="muted">· {{ a.count if a.count is not none else '?' }} photo(s){% if a.order %} · {{ 'oldest' if a.order == 'asc' else 'newest' }} first{% endif %}</span></div>{% else %}<span class="muted">–</span>{% endfor %}</td>
+    <td class="small">{% for s, txt in r.issues %}<div class="t-{{ s }}">{{ txt }}</div>{% else %}<span class="t-ok">ok</span>{% endfor %}
+      {% if r.missing_ids %}<details><summary>photo IDs not in Immich</summary><code>{{ r.missing_ids[:50]|join(' ') }}{% if r.missing_ids|length > 50 %} …{% endif %}</code></details>{% endif %}
+      {% if r.gone_ids %}<details><summary>photo IDs no longer on disk</summary><code>{{ r.gone_ids[:50]|join(' ') }}{% if r.gone_ids|length > 50 %} …{% endif %}</code></details>{% endif %}
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="6" class="t-ok">Every album is in Immich, complete, under its expected name.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if rep.unlinked %}
+<details class="alert info">
+  <summary>{{ rep.unlinked|length }} Immich album(s) not linked to any downloaded folder</summary>
+  <p class="small muted">Albums you made yourself, from other folders, or left over from an old name (then safe to delete: deleting an album never deletes its photos).</p>
+  <ul class="small">{% for a in rep.unlinked %}<li><bdi dir="auto">{{ a.name }}</bdi> <span class="muted">· {{ a.count if a.count is not none else '?' }} photo(s)</span></li>{% endfor %}</ul>
+</details>
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

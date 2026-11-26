@@ -22,6 +22,7 @@ from .acks import Acks
 from .fbdata import FbStore
 from .fbpages import parse_albums_page
 from .ignores import Ignores
+from .immich import ImmichWatcher, build_report as build_immich_report
 from .names import NamesFile, album_names, albumprops_content, read_albumprops
 from .logparse import END_REASONS, LogTail, decode_exit, set_log_tz
 from .status import AlbumRow, album_rows, event_counts, header, log_snapshot
@@ -48,6 +49,9 @@ CFG = {
     "host_data": os.environ.get("HOST_DATA_DIR", "./dashboard-data"),
     "host_tools": os.environ.get("HOST_TOOLS_DIR", "./web-dashboard/tools"),
     "host_fixorder": os.environ.get("HOST_FIXORDER", "./web-dashboard/tools/fix_order.py"),
+    "immich_url": os.environ.get("IMMICH_URL", ""),
+    "immich_key_file": os.environ.get("IMMICH_API_KEY_FILE", "/run/secrets/immich_api_key"),
+    "immich_every": float(os.environ.get("IMMICH_REFRESH_SECONDS", "1800")),
 }
 
 
@@ -149,6 +153,27 @@ SCANNER = IntegrityScanner(CFG["downloads_root"], _cache_path, CFG["archive_file
                            fb_counts=FBSTORE.counts)
 
 
+IMMICH = ImmichWatcher(CFG["immich_url"], CFG["immich_key_file"], CFG["immich_every"])
+_IMMICH_REPORT = {"key": None, "report": None}
+
+
+def immich_report():
+    """Immich snapshot compared with the disk and the chosen names (cached
+    until one of them changes)."""
+    snap, disk = IMMICH.snap, MON.disk
+    if not snap or not disk:
+        return None
+    key = (snap.taken, disk.taken, NAMES.mtime)
+    if _IMMICH_REPORT["key"] != key:
+        try:
+            _rows, _props, chosen = _names_rows()
+        except OSError:
+            chosen = {}
+        _IMMICH_REPORT.update(key=(snap.taken, disk.taken, NAMES.mtime),
+                              report=build_immich_report(snap, disk.albums, chosen))
+    return _IMMICH_REPORT["report"]
+
+
 @asynccontextmanager
 async def lifespan(app):
     MON.refresh()
@@ -156,6 +181,8 @@ async def lifespan(app):
     t.start()
     if CFG["integrity"]:
         threading.Thread(target=SCANNER.run, daemon=True, name="integrity").start()
+    if IMMICH.configured:
+        threading.Thread(target=IMMICH.run, daemon=True, name="immich").start()
     yield
     MON.stop.set()
     SCANNER.stop.set()
@@ -280,6 +307,13 @@ def ctx(request, **kw):
             h.title = FBSTORE.titles().get(h.set_id) or h.title
         kw.update(ir=SCANNER.report, ip=SCANNER.progress, scanner=SCANNER,
                   integrity_on=CFG["integrity"])
+    try:
+        ireport = immich_report() if IMMICH.configured else None
+    except Exception:            # a page must never fail because of Immich
+        ireport = None
+    kw.update(immich_on=IMMICH.configured, immich_bad=(ireport.counts().get("bad", 0) + ireport.counts().get("warn", 0))
+              if ireport else 0)
+    with MON.lock:
         kw.update(request=request, h=h, now=now, st=st, mon=MON, tail=MON.tail,
                   albums_error=MON.albums_error, disk=MON.disk,
                   acked=acked, acks_writable=bool(ACKS.path),
@@ -685,6 +719,24 @@ def events_ack(request: Request, key: list[str] = Form(default=[]), undo: str = 
     except OSError as e:
         raise HTTPException(500, str(e))
     return RedirectResponse(_back(request, f"{CFG['base']}/events"), status_code=303)
+
+
+@app.get("/immich", response_class=HTMLResponse)
+def immich_page(request: Request, show: str = "issues"):
+    rep = immich_report() if IMMICH.configured else None
+    rows = rep.rows if rep else []
+    if show != "all":
+        rows = [r for r in rows if r.severity != "ok"]
+    return templates.TemplateResponse(request, "immich.html", ctx(
+        request, w=IMMICH, rep=rep, rows=rows, show=show, cfg=CFG, page="immich"))
+
+
+@app.post("/immich/refresh")
+def immich_refresh(request: Request):
+    if not same_origin(request):
+        raise HTTPException(403, "cross-site request refused")
+    IMMICH.wake()
+    return RedirectResponse(f"{CFG['base']}/immich", status_code=303)
 
 
 @app.get("/diagnostics", response_class=HTMLResponse)

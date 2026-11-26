@@ -19,6 +19,7 @@
   <a href="{{ base }}/dates" {% if page == 'dates' %}aria-current="page"{% endif %}>Dates{% if ir and ir.dates %}{% set _d = ir.dates.counts() %}{% if _d.get('changed') %} <span class="pill bad">{{ _d.get('changed') }}</span>{% endif %}{% endif %}</a>
   <a href="{{ base }}/facebook" {% if page == 'facebook' %}aria-current="page"{% endif %}>Facebook</a>
   <a href="{{ base }}/names" {% if page == 'names' %}aria-current="page"{% endif %}>Names</a>
+  <a href="{{ base }}/immich" {% if page == 'immich' %}aria-current="page"{% endif %}>Immich{% if immich_bad %} <span class="pill bad">{{ immich_bad }}</span>{% endif %}</a>
   <a href="{{ base }}/diagnostics" {% if page == 'diagnostics' %}aria-current="page"{% endif %}>Diagnostics</a>
   <span class="tz">times in {{ tzname }}</span>
 </nav>

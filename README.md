@@ -71,6 +71,17 @@ missing**.
   else Facebook title, else folder name; duplicates get the account or the
   album ID added), dry run by default, only ever touching `.albumprops`
   files and never one it did not write.
+- **Immich** (optional, read-only API key): every downloaded album checked
+  in Immich: photos on disk not in Immich yet (by photo ID), offline photos,
+  photos still in Immich but gone from disk, no album yet, an album with the
+  old name instead of the expected one (`.albumprops` not applied), several
+  albums for one folder, an album missing photos, newest-first order; plus
+  the Immich albums not linked to any folder. Only reads: it lists albums and
+  searches assets, never writes. Set `IMMICH_URL` and give the key as a
+  Docker secret (`IMMICH_API_KEY_FILE`, default
+  `/run/secrets/immich_api_key`, a mode-600 file with only the `album.read`
+  and `asset.read` permissions); refreshed every 30 min
+  (`IMMICH_REFRESH_SECONDS`) or on demand.
 - **Sessions** (one per gallery-dl start): result / exit code, interrupted
   runs (crash, power cut), time spent in each kind of sleep and 429 wait.
 - **Events**: every warning and error, with tracebacks; acknowledge the ones
@@ -85,6 +96,8 @@ missing**.
   external CDN, no telemetry.
 - Signed image-server URLs (`*.fbcdn.net`, which carry tokens) are never
   stored; facebook.com links are reduced to photo and album IDs.
+- Immich (optional) is only read, with a key from a mode-600 file (never an
+  environment variable); what is read stays in memory.
 - Album names and photos are private: put a login in front (Caddy example
   below). The container publishes no port.
 
@@ -99,6 +112,7 @@ app/                  the dashboard (FastAPI + Jinja, runs as an unprivileged ui
   integrity.py        deep read-only disk check (decode, completeness, duplicates, archive)
   dates.py            read-only fix_order.py status (dates, order, overlaps)
   names.py            album-names.tsv (custom album names) and .albumprops reading
+  immich.py           read-only Immich check (albums, assets) against the disk
   fbpages.py          reads a saved Facebook albums page (album IDs, titles, counts)
   fbdata.py           facebook-albums.json (what was extracted, never the page)
 Dockerfile            builds the dashboard image (only app/ goes in, see .dockerignore)

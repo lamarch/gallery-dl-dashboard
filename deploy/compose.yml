@@ -34,6 +34,11 @@ services:
       HOST_DOWNLOADS_DIR: "./downloads"     # host folders, for the commands shown on the Names page
       HOST_DATA_DIR: "./dashboard-data"
       HOST_FIXORDER: "./web-dashboard/tools/fix_order.py"   # fix_order.py, for the commands on the Dates tab
+      # Optional Immich check (Immich tab), read-only key (album.read + asset.read)
+      # in a mode-600 file, given as a secret (see secrets: below):
+      # IMMICH_URL: "http://immich-server:2283"   # as seen from this container
+    # secrets:
+    #   - immich_api_key
     volumes:
       - ./downloads:/downloads:ro         # same mount as fb-dl, read-only
       - ./input:/input:ro                   # folder mount: sees albums.txt rewrites
@@ -44,3 +49,7 @@ services:
 networks:
   caddy:
     external: true
+
+# secrets:
+#   immich_api_key:
+#     file: ./immich-dashboard.key     # install -m 600 /dev/null immich-dashboard.key, then paste the key
