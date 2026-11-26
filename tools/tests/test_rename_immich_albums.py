@@ -117,7 +117,7 @@ def test_plan_and_dry_run(immich, capsys, monkeypatch):
     lines = {l.split()[1]: l.split()[0] for l in out.splitlines() if l[:1].isalpha() and " a." in l}
     assert lines == {"a.1": "rename", "a.2": "rename", "a.3": "skip", "a.4": "skip",
                      "a.5": "conflict", "a.6": "none", "a.8": "rename", "a.9": "rename",
-                     "a.10": "skip"}
+                     "a.10": "other"}
     assert "does not come from the folder" in out          # the hand-made album
     assert "DRY RUN" in out
 
@@ -157,3 +157,15 @@ def test_api_key_file(immich, tmp_path, capsys, monkeypatch):
     kf.write_text("two words\n")
     with pytest.raises(SystemExit):
         tool.main(["--url", url, "--names", names, "--api-key-file", str(kf)])
+
+
+def test_include_other_names_and_skip(immich, capsys, monkeypatch):
+    url, names = immich
+    monkeypatch.setenv("IMMICH_API_KEY", KEY)
+    tool.main(["--url", url, "--names", names, "--include-other-names", "--skip", "a.1", "--write"])
+    out = capsys.readouterr().out
+    renamed = dict(FakeImmich.patches)
+    assert renamed.get("u10") == {"albumName": "Pâques"}            # renamed by hand before: included
+    assert "u1" not in renamed and "excluded" in out                 # --skip a.1
+    assert "name set by hand before" in out
+    assert "u3" not in renamed                                        # cover elsewhere: still never touched

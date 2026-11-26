@@ -13,8 +13,11 @@ Safety:
     never adds or removes photos.
   * An album is matched only when its cover photo lives in that album's
     folder AND its name contains the folder name (or the folder name without
-    " (a.<id>)"), whatever naming options the album creator uses; albums
-    made by hand are never renamed.
+    " (a.<id>)"), whatever naming options the album creator uses. Albums
+    whose cover is in the folder but whose name does not come from it (renamed
+    by hand) are only renamed with --include-other-names; --skip excludes
+    albums. Note: an album whose name differs from its override_name makes
+    the album creator create a second album.
   * Skips when several albums match, when the cover cannot be checked, or
     when an album with the new name already exists (shown as a conflict).
 
@@ -92,7 +95,7 @@ def _norm(v):
     return " ".join((v or "").casefold().split())
 
 
-def plan(api, rows):
+def plan(api, rows, include_other_names=False, skip=()):
     """Match each album of album-names.tsv to ONE Immich album:
       * its cover photo lives in that album's folder ("... (a.<id>)"), and
       * its name contains the folder name, or the folder name without
@@ -127,6 +130,9 @@ def plan(api, rows):
         bare = re.sub(r"\s*\([^()]+\)\s*$", "", folder)
         if new in (folder, bare):
             continue
+        if sid in skip:
+            actions.append(("excluded", sid, "excluded with --skip", None, None))
+            continue
         here = by_cover.get(sid, [])
         keys = [k for k in (_norm(folder), _norm(bare)) if k]
         plausible = [a for a in here if any(k in _norm(a.get("albumName")) for k in keys)]
@@ -142,10 +148,15 @@ def plan(api, rows):
             actions.append(("skip", sid, f"{len(plausible)} albums have their cover in this folder and a name "
                                          f"like it: {', '.join('“%s”' % a['albumName'] for a in plausible)}", None, None))
             continue
+        other = False
+        if not plausible and include_other_names and len(here) == 1:
+            plausible, other = here, True          # renamed by hand earlier: asked to rename it too
         if not plausible:
             if here:
-                actions.append(("skip", sid, f"album “{here[0]['albumName']}” has its cover in this folder but "
-                                             f"its name does not come from the folder: not renamed", None, None))
+                actions.append(("other", sid, f"album “{here[0]['albumName']}” has its cover in this folder but "
+                                              f"its name does not come from the folder (renamed by hand?): not "
+                                              f"renamed. Use --include-other-names to rename it to “{new}”, or "
+                                              f"set its custom name to its current name", None, None))
             elif by_name.get(folder) or by_name.get(bare):
                 a = (by_name.get(folder) or by_name.get(bare))[0]
                 actions.append(("skip", sid, f"album “{a['albumName']}” is named like the folder but its cover "
@@ -159,7 +170,8 @@ def plan(api, rows):
             actions.append(("conflict", sid, f"an album named “{new}” already exists "
                                              f"(created by the album creator?): rename skipped", None, None))
             continue
-        actions.append(("rename", sid, f"“{a['albumName']}” → “{new}”", a["id"], new))
+        actions.append(("rename", sid, f"“{a['albumName']}” → “{new}”" + ("  (name set by hand before)" if other else ""),
+                        a["id"], new))
         taken.add(_norm(new))                       # two folders can't take the same new name
     return actions
 
@@ -186,6 +198,11 @@ def main(argv=None):
     ap.add_argument("--url", default=os.environ.get("IMMICH_URL"), help="Immich URL (or IMMICH_URL)")
     ap.add_argument("--names", required=True, help="album-names.tsv from the dashboard data folder")
     ap.add_argument("--api-key-file", help="file holding the API key (chmod 600)")
+    ap.add_argument("--include-other-names", action="store_true",
+                    help="also rename albums whose cover is in the folder but whose name does not come "
+                         "from it (e.g. renamed by hand before)")
+    ap.add_argument("--skip", action="append", default=[], metavar="SET_ID",
+                    help="never touch this album (repeatable), e.g. --skip a.123")
     ap.add_argument("--write", action="store_true", help="really rename")
     args = ap.parse_args(argv)
     key = read_key_file(args.api_key_file) if args.api_key_file else os.environ.get("IMMICH_API_KEY")
@@ -198,7 +215,7 @@ def main(argv=None):
             pass
     api = Immich(args.url, key)
     try:
-        actions = plan(api, read_names(args.names))
+        actions = plan(api, read_names(args.names), args.include_other_names, set(args.skip))
     except urllib.error.HTTPError as e:
         sys.exit(f"Immich answered {e.code}: check the URL and the API key permissions")
     except urllib.error.URLError as e:
