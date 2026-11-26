@@ -105,7 +105,6 @@ tests/                pytest suite, fake-log generator, demo builder
 tools/seed_archive.py fill a gallery-dl download archive from files already on disk
 tools/apply_albumprops.py write .albumprops (override_name) from album-names.tsv
 tools/fix_order.py    sets mtime + EXIF date of each photo in album order (needs exiftool)
-tools/rename_immich_albums.py renames existing Immich albums to the chosen names (Immich API)
 deploy/               example compose.yml and gallery-dl.conf
 ```
 

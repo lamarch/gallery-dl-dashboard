@@ -36,8 +36,8 @@
     <li>Preview (writes nothing), from your compose folder:<pre class="cmd">{{ albumprops_cmd(False) }}</pre></li>
     <li>Apply (only <code>.albumprops</code> files are written):<pre class="cmd">{{ albumprops_cmd(True) }}</pre>
       <span class="muted">Run it as the user that owns the downloads (the uid gallery-dl runs as, usually 1000), not with sudo, so the new files have the same owner as the photos.</span></li>
-    <li>immich-folder-album-creator: set <code>READ_ALBUM_PROPERTIES=1</code>. For an album that already exists in Immich, rename it first
-      (<code>tools/rename_immich_albums.py</code>): the tool finds albums by name and would otherwise create a second album.</li>
+    <li>immich-folder-album-creator: set <code>READ_ALBUM_PROPERTIES=1</code>. It finds albums by name: an album that already exists under its old name gets a second album next to it.
+      Delete the old albums in Immich (deleting an album never deletes its photos) and let the tool create them again, or rename them by hand.</li>
   </ol>
 </details>
 

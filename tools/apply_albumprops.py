@@ -21,9 +21,10 @@ Safety:
   * Albums are found by the "(set_id)" at the end of the folder name.
 
 Immich side: set READ_ALBUM_PROPERTIES=1 on immich-folder-album-creator.
-Albums already created under the old name are not renamed by that tool (it
-matches albums by name and would create a new one): rename the existing album
-in Immich to the new name first, and the tool reuses it.
+That tool finds albums BY NAME: an album that already exists in Immich under
+its old name is not renamed, a new album is created next to it. Delete the
+old albums (only albums are deleted, never photos) and let the tool create
+them again, or rename them in Immich by hand.
 
 Standard library only.
 """
