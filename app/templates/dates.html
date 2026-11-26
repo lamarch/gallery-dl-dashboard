@@ -67,5 +67,39 @@
   </tbody>
 </table>
 </div>
+
+<section>
+  <h3>Interleaving albums <small class="muted">timeline as Immich shows it now (EXIF date, or file time when there is none)</small></h3>
+  {% set fixed = dr.interleaved|selectattr('a_fixed')|selectattr('b_fixed')|list %}
+  {% set moving = dr.interleaved|rejectattr('a_fixed')|list + dr.interleaved|selectattr('a_fixed')|rejectattr('b_fixed')|list %}
+  {% macro ilrows(items) %}
+  <div class="tablewrap"><table>
+    <thead><tr><th>Album</th><th class="num">Photos of the other album inside its time span</th><th>Other album</th><th>Overlap</th></tr></thead>
+    <tbody>{% for i in items[:200] %}{% set aa = ir.albums.get(i.a) %}{% set bb = ir.albums.get(i.b) %}
+      <tr>
+        <td class="name"><a href="{{ base }}/album/{{ i.a }}"><bdi dir="auto">{{ aa.title if aa and aa.title else i.a }}</bdi></a> <span class="dt dt-{{ dr.albums[i.a].state|replace(' ', '-') }}">{{ dr.albums[i.a].state }}</span></td>
+        <td class="num"><b>{{ i.inside }}</b></td>
+        <td class="name"><a href="{{ base }}/album/{{ i.b }}"><bdi dir="auto">{{ bb.title if bb and bb.title else i.b }}</bdi></a> <span class="dt dt-{{ dr.albums[i.b].state|replace(' ', '-') }}">{{ dr.albums[i.b].state }}</span></td>
+        <td class="nowrap small">{{ i.start|dt('%Y-%m-%d %H:%M') }} → {{ i.end|dt('%Y-%m-%d %H:%M') }}</td>
+      </tr>{% endfor %}</tbody>
+  </table></div>
+  {% if items|length > 200 %}<p class="muted">… {{ items|length - 200 }} more.</p>{% endif %}
+  {% endmacro %}
+  <h4>Between corrected albums ({{ fixed|length }})</h4>
+  <p class="muted">Both albums already sit at their final dates. Reported only: changing them would rewrite files already in Immich.</p>
+  {% if fixed %}{{ ilrows(fixed) }}{% else %}<p>None.</p>{% endif %}
+  <details><summary>Involving albums not corrected yet ({{ moving|length }}): their photos will move when fix_order.py runs</summary>
+  {% if moving %}{{ ilrows(moving) }}{% else %}<p>None.</p>{% endif %}
+  </details>
+</section>
+
+<section>
+  <h3>How Immich reacts (external library)</h3>
+  <ul class="small">
+    <li>An asset is identified by its <b>path</b>: renaming or moving a file or folder creates a new asset (faces, albums and favorites stay with the old one).</li>
+    <li>A rescan compares only the <b>mtime</b>: when it changed, Immich keeps the asset but re-reads its dates and re-runs thumbnails, face detection (existing faces are matched again), smart search, OCR and duplicate detection.</li>
+    <li>A content change with the same mtime (e.g. exiftool <code>-P</code>) is not noticed by a rescan.</li>
+  </ul>
+</section>
 {% endif %}
 {% endblock %}

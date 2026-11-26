@@ -171,6 +171,12 @@ class FileDate:
         return datetime.fromtimestamp(ns / 1e9, tz=timezone.utc)
 
     @property
+    def timeline(self) -> datetime:
+        """Date Immich shows in its timeline (metadata.service getDates()):
+        the embedded date when present, otherwise the file time (mtime)."""
+        return self.embedded or self.mtime_dt
+
+    @property
     def rewrite_corrected(self) -> bool:
         """fix_order would modify a file it had already corrected."""
         return self.corrected and (self.would_mtime or self.would_content)
@@ -198,6 +204,7 @@ class AlbumDates:
     offsets: Counter = field(default_factory=Counter)
     ready: bool = False
     ready_reason: str = ""
+    interleaved_by: list = field(default_factory=list)   # Interleave where this album is "a"
 
     def count(self, attr) -> int:
         return sum(1 for f in self.files if getattr(f, attr))
@@ -233,6 +240,7 @@ class DatesReport:
     offsets: Counter = field(default_factory=Counter)
     steps_seen: Counter = field(default_factory=Counter)
     tz_mismatch: int = 0                             # corrected files written with another tz
+    interleaved: list = field(default_factory=list)  # Interleave, worst first
 
     def counts(self) -> Counter:
         return Counter(a.state for a in self.albums.values())
@@ -302,6 +310,8 @@ def build_dates(entries, tz, tz_name: str, step: float, checks: dict,
                     if s1 != s2:
                         rep.albums[s1].cross_collisions[s2] = rep.albums[s1].cross_collisions.get(s2, 0) + 1
 
+    rep.interleaved = find_interleaving(rep.albums)
+
     # ready to run fix_order? only on albums proven complete
     for sid, a in rep.albums.items():
         c = checks.get(sid)
@@ -321,6 +331,49 @@ def build_dates(entries, tz, tz_name: str, step: float, checks: dict,
         if a.ready and c.verdict == "warnings":
             a.ready_reason += "; disk check has warnings"
     return rep
+
+
+@dataclass
+class Interleave:
+    a: str                    # album whose time span is entered
+    b: str                    # album with photos inside it
+    inside: int               # photos of b strictly inside a's span
+    start: datetime           # overlap of the two spans
+    end: datetime
+    a_fixed: bool             # fix_order applied (its photos sit at their final place)
+    b_fixed: bool
+
+
+def find_interleaving(albums: dict) -> list:
+    """Albums whose photos fall inside another album's time span, in the
+    timeline as Immich shows it now. Albums are long: two albums of the same
+    weekend overlapping is expected; what matters is how many photos of one
+    land between the photos of the other."""
+    import bisect
+    times = {}
+    for sid, a in albums.items():
+        ts = sorted(f.timeline for f in a.files)
+        if ts:
+            times[sid] = ts
+    out = []
+    for sa, ta in times.items():
+        a0, a1 = ta[0], ta[-1]
+        if a0 == a1:
+            continue
+        for sb, tb in times.items():
+            if sb == sa:
+                continue
+            lo = bisect.bisect_right(tb, a0)
+            hi = bisect.bisect_left(tb, a1)
+            inside = hi - lo
+            if inside > 0:
+                fixed = lambda x: albums[x].state == "applied"  # noqa: E731
+                out.append(Interleave(sa, sb, inside, max(a0, tb[0]), min(a1, tb[-1]),
+                                      fixed(sa), fixed(sb)))
+    out.sort(key=lambda i: (-i.inside, i.a, i.b))
+    for i in out:
+        albums[i.a].interleaved_by.append(i)
+    return out
 
 
 def _classify(e, target, rank, n, tz, step, rep) -> FileDate:

@@ -197,3 +197,23 @@ def test_ready_only_when_album_is_proven_complete(tmp_path):
     ready = {sid: a.ready for sid, a in dr.albums.items()}
     assert ready == {"a.8": True, "a.9": False, "a.10": True, "a.11": False}
     assert "did not reach the end" in dr.albums["a.9"].ready_reason
+
+
+def test_interleaving_in_the_current_timeline(tmp_path):
+    L = Lib(str(tmp_path))
+    day = lambda h, m=0: T(f"2024-05-01 {h:02d}:{m:02d}:00")  # noqa: E731
+    # a.20 corrected: 10:00 .. 12:00 ; a.21 corrected: 11:00 (inside a.20's span) and 13:00
+    L.album("a.20", [("2001", "2024-05-01 10:00:00", day(10), ".jpg"),
+                     ("2002", "2024-05-01 12:00:00", day(12), ".jpg")])
+    L.album("a.21", [("2101", "2024-05-01 11:00:00", day(11), ".jpg"),
+                     ("2102", "2024-05-01 13:00:00", day(13), ".jpg")])
+    # a.22 not corrected: Immich shows the file time (gallery-dl's Last-Modified)
+    L.album("a.22", [("2201", "2024-05-01 18:00:00", None, ".jpg"),
+                     ("2202", "2024-05-01 19:00:00", None, ".jpg")])
+    dr, _ = run(L.root)
+    pairs = {(i.a, i.b): (i.inside, i.a_fixed, i.b_fixed) for i in dr.interleaved}
+    # 2101 (11:00) is inside a.20 (10-12), 2002 (12:00) is inside a.21 (11-13)
+    assert pairs == {("a.20", "a.21"): (1, True, True), ("a.21", "a.20"): (1, True, True)}
+    # the uncorrected album sits at its file time (2023-11-14), far away: no interleave
+    assert dr.albums["a.22"].files[0].timeline.year == 2023
+    assert [i.b for i in dr.albums["a.20"].interleaved_by] == ["a.21"]

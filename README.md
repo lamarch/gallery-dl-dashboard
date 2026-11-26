@@ -41,7 +41,8 @@ missing**.
   partial (new photos) / **changed** (running it now would modify files it had
   already corrected, e.g. after the album changed or with another `--tz`),
   what a run would change, timestamp collisions inside and between albums,
-  and whether the album is proven complete enough to be fixed. The ordering
+  and whether the album is proven complete enough to be fixed; albums that
+  interleave in the timeline as Immich shows it now (EXIF date, else file time). The ordering
   logic is a line-by-line port of the script and was checked against the real
   script's `--dry-run`.
 - **Sessions** (one per gallery-dl start): result / exit code, interrupted
@@ -93,6 +94,16 @@ See `deploy/`. Three things matter:
 3. **Run gallery-dl once per container start** (wrapper in `deploy/compose.yml`):
    it still restarts after a power cut, logs its exit code for the dashboard,
    and does not loop over the list forever.
+
+## Immich (external library) facts this tool relies on
+
+From Immich's server code (`library.service.ts`, `metadata.service.ts`):
+an external asset is identified by its **path** (renaming/moving a file or
+folder creates a new asset; faces, albums and favorites stay with the old
+one); a rescan compares only the **mtime** (when it changed, the asset is
+kept but its metadata is re-read and thumbnails, face detection, smart
+search, OCR and duplicate detection run again); a content change with an
+unchanged mtime is not noticed.
 
 ## Deploy
 
