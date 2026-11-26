@@ -24,7 +24,9 @@
     <thead><tr>
       <th>#</th><th>Status</th><th>Account › Album</th><th class="num">Passes</th><th>Last pass</th>
       <th class="num" title="in the last pass: downloaded / already had">Log new/had</th>
-      <th class="num">Missing</th><th class="num">On disk</th><th class="num">Size</th><th>Disk check</th><th>Flags</th>
+      <th class="num">Missing</th><th class="num">On disk</th><th class="num">Size</th>
+      <th>Started</th><th>Ended</th><th class="num" title="time spent downloading, all passes (1 h pauses and 429 waits excluded); hover for the total">Time</th>
+      <th>Disk check</th><th>Flags</th>
     </tr></thead>
     <tbody>
     {% for r in rows %}
@@ -40,6 +42,9 @@
       <td class="num">{% if r.missing %}<b class="t-bad">{{ r.missing|length }}</b>{% else %}0{% endif %}</td>
       <td class="num">{{ r.disk_media|n }}</td>
       <td class="num">{{ r.disk_bytes|bytes }}</td>
+      <td class="nowrap small">{{ r.first_start|dt('%d/%m/%y %H:%M') if r.first_start else '–' }}</td>
+      <td class="nowrap small">{% if r.running %}<span class="st st-current">running</span>{% elif r.last_end %}{{ r.last_end|dt('%d/%m/%y %H:%M') }}{% else %}–{% endif %}</td>
+      <td class="num" title="{% if r.first_start %}{{ r.time_total|dur }} in total, incl. {{ r.time_pause|dur }} of pauses{% endif %}">{{ r.time_work|dur if r.first_start else '–' }}</td>
       <td>{{ verdict(r.check) }}{% if r.check and r.check.missing_estimate %}<div class="t-bad small">{{ r.check.missing_estimate }} missing</div>{% endif %}</td>
       <td class="flags">{% for sev, txt in r.flags %}<div class="t-{{ sev }}">{{ txt }}</div>{% endfor %}</td>
     </tr>

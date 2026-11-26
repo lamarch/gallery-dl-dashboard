@@ -40,6 +40,12 @@ class AlbumRow:
     flags: list = field(default_factory=list)   # (severity, text)
     last_seen: Optional[datetime] = None
     check: object = None                        # integrity.AlbumCheck, when scanned
+    first_start: Optional[datetime] = None      # first pass in the log
+    last_end: Optional[datetime] = None         # end of the last pass (None while running)
+    running: bool = False
+    time_total: float = 0.0                     # all passes, seconds (pauses included)
+    time_pause: float = 0.0                     # the 1 h pauses before the album
+    time_work: float = 0.0                      # downloading (pauses and 429 waits excluded)
 
     @property
     def severity(self) -> str:
@@ -47,7 +53,9 @@ class AlbumRow:
         return "bad" if "bad" in sev else "warn" if "warn" in sev else "ok"
 
 
-def album_rows(state: LogState, albums: list, disk, current_set: Optional[str]) -> list[AlbumRow]:
+def album_rows(state: LogState, albums: list, disk, current_set: Optional[str],
+               now: Optional[datetime] = None) -> list[AlbumRow]:
+    now = now or datetime.now(timezone.utc)
     jobs_by_set: dict = {}
     for j in state.jobs:
         jobs_by_set.setdefault(j.set_id, []).append(j)
@@ -87,6 +95,14 @@ def album_rows(state: LogState, albums: list, disk, current_set: Optional[str]) 
             r.errors += j.errors
             r.log_bytes += j.bytes
         if jobs:
+            r.first_start = jobs[0].start
+            for j in jobs:
+                dur = j.durations(now)
+                r.time_total += dur["total"]
+                r.time_pause += dur["pause"]
+                r.time_work += dur["work"]
+            _, last_end, r.running = jobs[-1].span(now)
+            r.last_end = None if r.running else last_end
             last = jobs[-1]
             r.end_reason = last.end_reason
             r.end_label = END_REASONS.get(last.end_reason, last.end_reason)

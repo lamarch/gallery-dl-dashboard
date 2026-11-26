@@ -11,6 +11,8 @@
   <div><dt>Folder</dt><dd><bdi dir="auto">{{ row.folder or 'not on disk yet' }}</bdi></dd></div>
   <div><dt>On disk</dt><dd>{{ row.disk_media|n }} files · {{ row.disk_bytes|bytes }}{% if d and d.part %} · {{ d.part }} .part{% endif %}{% if d and (d.media_without_json or d.json_without_media) %} · {{ d.media_without_json }} without JSON, {{ d.json_without_media }} JSON without file{% endif %}</dd></div>
   <div><dt>Passes</dt><dd>{{ row.passes }}</dd></div>
+  {% if row.first_start %}<div><dt>Time</dt><dd>{{ row.first_start|dt('%d/%m/%Y %H:%M:%S') }} → {% if row.running %}<span class="st st-current">running</span>{% else %}{{ row.last_end|dt('%d/%m/%Y %H:%M:%S') }}{% endif %}<br>
+    {{ row.time_work|dur }} downloading · {{ row.time_pause|dur }} pauses · {{ row.time_total|dur }} in total</dd></div>{% endif %}
 </dl>
 
 {% if row.flags %}<section>{% for sev, txt in row.flags %}<p class="alert {{ sev }}">{{ txt }}</p>{% endfor %}</section>{% endif %}
@@ -137,17 +139,21 @@
   <h3>Passes</h3>
   <div class="tablewrap">
   <table>
-    <thead><tr><th>Session</th><th>Started</th><th>Ended</th><th>Result</th><th class="num">Seen</th><th class="num">New</th><th class="num">Had</th><th class="num">Missing</th><th class="num">429 waits</th><th class="num">Downloaded</th><th>Archive</th></tr></thead>
+    <thead><tr><th>Session</th><th>Started</th><th>Ended</th><th class="num" title="whole pass, pauses included">Duration</th><th class="num" title="sleep-extractor before the album">Pause</th><th class="num" title="duration minus pause and 429 waits">Downloading</th><th>Result</th><th class="num">Seen</th><th class="num">New</th><th class="num">Had</th><th class="num">Missing</th><th class="num">429 waits</th><th class="num">Downloaded</th><th>Archive</th></tr></thead>
     <tbody>
     {% for j in jobs %}{% set c = j.counts() %}
     <tr>
-      <td>#{{ j.session + 1 }}</td><td class="nowrap">{{ j.start|dt('%d/%m %H:%M') }}</td><td class="nowrap">{{ j.end|dt('%d/%m %H:%M') }}</td>
+      {% set du = j.durations(now) %}
+      <td>#{{ j.session + 1 }}</td><td class="nowrap">{{ j.start|dt('%d/%m/%Y %H:%M:%S') }}</td>
+      {% set sp = j.span(now) %}
+      <td class="nowrap">{% if sp[2] %}<span class="st st-current">running</span>{% else %}{{ sp[1]|dt('%d/%m/%Y %H:%M:%S') }}{% endif %}</td>
+      <td class="num">{{ du.total|dur }}</td><td class="num">{{ du.pause|dur }}</td><td class="num">{{ du.work|dur }}</td>
       <td>{{ END_REASONS.get(j.end_reason, j.end_reason) }}</td>
       <td class="num">{{ j.photos|length }}</td><td class="num">{{ c['downloaded'] }}</td><td class="num">{{ c['skipped'] }}</td>
-      <td class="num">{{ c['missing'] }}</td><td class="num">{{ j.waits_429 }}</td><td class="num">{{ j.bytes|bytes }}</td>
+      <td class="num">{{ c['missing'] }}</td><td class="num">{{ j.waits_429 }}{% if j.waits_429 %} · {{ du.waits|dur }}{% endif %}</td><td class="num">{{ j.bytes|bytes }}</td>
       <td>{{ 'on' if j.archive else ('failed' if j.archive is sameas false else '–') }}</td>
     </tr>
-    {% else %}<tr><td colspan="11" class="muted">Not processed in the current log.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="14" class="muted">Not processed in the current log.</td></tr>{% endfor %}
     </tbody>
   </table>
   </div>

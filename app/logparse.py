@@ -204,6 +204,27 @@ class Job:
     wait_seconds: float = 0.0
     bytes: int = 0
     current: Optional[Photo] = None
+    sleep_seconds: Counter = field(default_factory=Counter)   # by reason, in this pass
+    last_ts: Optional[datetime] = None
+    ended_at: Optional[datetime] = None   # end-of-album message (pass not closed yet)
+
+    def span(self, now: Optional[datetime] = None):
+        """(start, end, running): a running pass ends 'now'."""
+        if self.end is not None:
+            return self.start, self.end, False
+        if self.ended_at is not None:
+            return self.start, self.ended_at, False
+        return self.start, (now or self.last_ts or self.start), True
+
+    def durations(self, now: Optional[datetime] = None) -> dict:
+        """Seconds: total, pause (sleep-extractor before the album), rate-limit
+        waits, and work (total minus pause and waits)."""
+        start, end, _ = self.span(now)
+        total = max(0.0, (end - start).total_seconds())
+        pause = min(total, self.sleep_seconds.get("extractor", 0.0))
+        waits = min(total - pause, self.wait_seconds)
+        return {"total": total, "pause": pause, "waits": waits,
+                "work": max(0.0, total - pause - waits)}
 
     def counts(self) -> Counter:
         return Counter(p.status for p in self.photos.values())
@@ -240,6 +261,16 @@ class Session:
     wait_count: int = 0
     archive: Optional[bool] = None
     lines: int = 0
+
+    def durations(self, now: Optional[datetime] = None) -> dict:
+        """Seconds: total, pauses (sleep-extractor between albums), rate-limit
+        waits, active (total minus pauses and waits)."""
+        end = self.end or (now if self.end_reason == "running" and now else self.last_ts) or self.start
+        total = max(0.0, (end - self.start).total_seconds())
+        pause = min(total, self.sleep_seconds.get("extractor", 0.0))
+        waits = min(total - pause, self.wait_seconds)
+        return {"total": total, "pause": pause, "waits": waits,
+                "active": max(0.0, total - pause - waits)}
 
     @property
     def current_job(self) -> Optional[Job]:
@@ -329,10 +360,12 @@ class LogState:
         if j.end_reason == "running":
             j.end_reason = "unknown"
 
-    def _set_end(self, reason):
+    def _set_end(self, reason, ts=None):
         j = self.job
         if j is not None and (j.end_reason == "running" or reason in ("blocked", "login")):
             j.end_reason = reason
+            if ts is not None:
+                j.ended_at = ts          # the album is over, even if the pass stays open
 
     def _end_session(self, ts, reason, exit_code=None):
         s = self.session
@@ -389,6 +422,9 @@ class LogState:
         if self.session is not None:
             self.session.last_ts = ts
             self.session.lines += 1
+            j = self.session.current_job
+            if j is not None:
+                j.last_ts = ts
         if not handled:
             if level in ("warning", "error", "critical"):
                 kind = "other_" + ("error" if level != "warning" else "warning")
@@ -492,6 +528,8 @@ class LogState:
             s = self.session
             s.sleep_seconds[reason] += secs
             s.sleep_counts[reason] += 1
+            if job is not None:
+                job.sleep_seconds[reason] += secs
             self.activity = Activity("sleep", ts, ts + timedelta(seconds=secs), reason)
             if reason == "download" and job is not None and job.current is not None:
                 job.current.download_started = True
@@ -552,30 +590,30 @@ class LogState:
                             f"It is missing from this album.", pid)
                 return True
             if msg.startswith("Can't find next image in the set"):
-                self._set_end("complete")
+                self._set_end("complete", ts)
                 return True
             if msg.startswith("Detected a loop in the set"):
-                self._set_end("complete_loop")
+                self._set_end("complete_loop", ts)
                 return True
             m = RE_JUMP.match(msg)
             if m:
-                self._set_end("jump")
+                self._set_end("jump", ts)
                 self._event(ts, "warning", logger, "jump",
                             "Album stopped by gallery-dl's 'jump to the beginning' "
                             "heuristic: check the photo count against Facebook", None)
                 return True
             if msg.startswith("You've been temporarily blocked"):
-                self._set_end("blocked")
+                self._set_end("blocked", ts)
                 self._event(ts, level, logger, "blocked", msg)
                 self._last_record = "event"
                 return True
             if msg.startswith("You must be logged in") or msg.startswith("AuthRequired"):
-                self._set_end("login")
+                self._set_end("login", ts)
                 self._event(ts, level, logger, "login", msg)
                 self._last_record = "event"
                 return True
             if msg.startswith("No results for"):
-                self._set_end("no_results")
+                self._set_end("no_results", ts)
                 self._event(ts, "warning", logger, "no_results", msg)
                 return True
             m = RE_HTTP_RETRY.match(msg)
@@ -587,7 +625,7 @@ class LogState:
                 self._event(ts, level, logger, "http_error", msg)
                 return True
             if msg.startswith("An unexpected error occurred"):
-                self._set_end("error")
+                self._set_end("error", ts)
                 self._event(ts, level, logger, "unexpected", msg)
                 self._last_record = "event"
                 return True
@@ -595,7 +633,7 @@ class LogState:
                 self._event(ts, level, logger, "challenge", msg)
                 return True
             if level == "error":
-                self._set_end("error")
+                self._set_end("error", ts)
                 self._event(ts, level, logger, "error", msg)
                 self._last_record = "event"
                 return True

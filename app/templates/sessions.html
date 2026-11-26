@@ -5,7 +5,7 @@
 <div class="tablewrap">
 <table>
   <thead><tr>
-    <th>#</th><th>Started</th><th>Ended</th><th class="num">Duration</th><th>Result</th>
+    <th>#</th><th>Started</th><th>Ended</th><th class="num">Duration</th><th class="num" title="duration minus the 1 h pauses between albums and the 429 waits">Active</th><th>Result</th>
     <th class="num">Albums</th><th class="num">New / had / missing</th>
     <th class="num" title="sleep-extractor">Album pauses</th><th class="num" title="sleep-request">Request sleeps</th>
     <th class="num" title="sleep">Download sleeps</th><th class="num" title="sleep-retries">Retry sleeps</th>
@@ -18,9 +18,11 @@
   {% set end = s.end or s.last_ts %}
   <tr class="{{ 'sev-bad' if s.end_reason == 'interrupted' or (s.exit_code or 0) != 0 else '' }}">
     <td>#{{ s.idx + 1 }}</td>
-    <td class="nowrap">{{ s.start|dt('%d/%m %H:%M') }}</td>
-    <td class="nowrap">{{ s.end|dt('%d/%m %H:%M') if s.end else 'running' }}</td>
-    <td class="num">{{ ((end - s.start).total_seconds() if end else 0)|dur }}</td>
+    {% set du = s.durations(now) %}
+    <td class="nowrap">{{ s.start|dt('%d/%m/%Y %H:%M:%S') }}</td>
+    <td class="nowrap">{% if s.end %}{{ s.end|dt('%d/%m/%Y %H:%M:%S') }}{% else %}<span class="st st-current">running</span>{% endif %}</td>
+    <td class="num">{{ du.total|dur }}</td>
+    <td class="num">{{ du.active|dur }}</td>
     <td>{% if s.end_reason == 'exited' %}exit {{ s.exit_code }} ({{ decode_exit(s.exit_code)|join(', ') }}){% elif s.end_reason == 'interrupted' %}<span class="t-bad">interrupted</span>{% else %}running{% endif %}</td>
     <td class="num">{{ s.jobs|length }}</td>
     <td class="num">{{ ns.new|n }} / {{ ns.had|n }} / {% if ns.miss %}<b class="t-bad">{{ ns.miss }}</b>{% else %}0{% endif %}</td>
@@ -32,7 +34,7 @@
     <td class="num">{{ ns.b|bytes }}</td>
     <td>{{ 'on' if s.archive else ('failed' if s.archive is sameas false else '–') }}</td>
   </tr>
-  {% else %}<tr><td colspan="14" class="muted">No session in the log yet.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="15" class="muted">No session in the log yet.</td></tr>{% endfor %}
   </tbody>
 </table>
 </div>

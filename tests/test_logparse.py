@@ -133,3 +133,40 @@ def test_big_log_speed(tmp_path):
     assert len(st.jobs) == 60 and sum(len(j.photos) for j in st.jobs) == 30000
     print(f"{len(text)/1e6:.1f} MB parsed in {dt:.2f}s")
     assert dt < 20
+
+
+def test_pass_and_session_durations():
+    from datetime import timedelta
+    f = FakeLog().session_start()
+    f.job_start("a.1")                                  # 1 h pause (sleep-extractor)
+    f.photo("11").page("12").no_url_retry("12", seconds=900).page("12").download("12")
+    f.end_chain()
+    f.job_start("a.2")                                  # still running at the end of the log
+    f.photo("21")
+    st = parse(f.text())
+    a, b = st.jobs
+    d = a.durations()
+    assert d["pause"] == 3600 and d["waits"] == 900
+    assert d["total"] == (a.end - a.start).total_seconds()
+    assert abs(d["work"] - (d["total"] - 3600 - 900)) < 1e-6 and d["work"] > 0
+    # a running pass counts up to "now"
+    later = b.last_ts + timedelta(minutes=10)
+    assert b.durations(later)["total"] == (later - b.start).total_seconds()
+    s = st.sessions[0].durations(later)
+    assert s["pause"] == 7200 and s["waits"] == 900
+    assert abs(s["active"] - (s["total"] - 7200 - 900)) < 1e-6
+
+
+def test_album_row_times():
+    from app.status import album_rows
+    from app.albums import InputAlbum
+    f = FakeLog().session_start()
+    f.job_start("a.1").photo("11").end_chain()
+    f.at(3 * 3600).session_start().job_start("a.1").skipped("11").end_chain()   # 2nd pass
+    st = parse(f.text())
+    r = album_rows(st, [InputAlbum(1, 1, "a.1", "/media/set/?set=a.1", True)], None, None)[0]
+    j1, j2 = st.jobs
+    # the log ends right after "Extraction is over": the pass is over at that line
+    assert r.first_start == j1.start and r.last_end == j2.ended_at and not r.running
+    assert r.time_pause == 7200
+    assert abs(r.time_total - sum(j.durations()["total"] for j in st.jobs)) < 1e-6
