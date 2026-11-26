@@ -126,3 +126,20 @@ def test_bad_key_is_reported(immich, monkeypatch):
     with pytest.raises(SystemExit) as e:
         run(url, names, key="wrong", monkeypatch=monkeypatch)
     assert "401" in str(e.value)
+
+
+def test_api_key_file(immich, tmp_path, capsys, monkeypatch):
+    url, names = immich
+    monkeypatch.delenv("IMMICH_API_KEY", raising=False)
+    kf = tmp_path / "rename_albums.immich_api_key"
+    kf.write_text(KEY + "\n")                              # trailing newline is fine
+    kf.chmod(0o644)
+    with pytest.raises(SystemExit) as e:                   # readable by others: refused
+        tool.main(["--url", url, "--names", names, "--api-key-file", str(kf)])
+    assert "chmod 600" in str(e.value)
+    kf.chmod(0o600)
+    assert tool.main(["--url", url, "--names", names, "--api-key-file", str(kf)]) == 0
+    assert "rename" in capsys.readouterr().out
+    kf.write_text("two words\n")
+    with pytest.raises(SystemExit):
+        tool.main(["--url", url, "--names", names, "--api-key-file", str(kf)])

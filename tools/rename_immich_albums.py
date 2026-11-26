@@ -16,12 +16,14 @@ Safety:
   * Skips when several albums match, when the cover cannot be checked, or
     when an album with the new name already exists (shown as a conflict).
 
-The API key is read from the IMMICH_API_KEY environment variable (never on
-the command line, so it does not end up in your shell history). It needs the
-album.read, album.update and asset.read permissions.
+The API key is read from a file (--api-key-file, which must not be readable
+by other users: chmod 600) or from the IMMICH_API_KEY environment variable;
+never from the command line, so it does not end up in your shell history. It
+needs the album.read, album.update and asset.read permissions.
 
 Usage:
-  IMMICH_API_KEY=... python3 rename_immich_albums.py --url https://immich.example \\
+  python3 rename_immich_albums.py --url https://immich.example \\
+      --api-key-file rename_albums.immich_api_key \\
       --names dashboard-data/album-names.tsv [--write]
 Standard library only.
 """
@@ -126,16 +128,33 @@ def plan(api, rows):
     return actions
 
 
+def read_key_file(path):
+    """API key from a file that only its owner can read."""
+    import stat
+    try:
+        st = os.stat(path)
+    except OSError as e:
+        sys.exit(f"cannot read the API key file: {e.strerror}")
+    if os.name == "posix" and st.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+        sys.exit(f"{path} can be read by other users: run  chmod 600 {path}  first")
+    with open(path, encoding="utf-8") as fh:
+        key = fh.read().strip()
+    if not key or any(c.isspace() for c in key):
+        sys.exit(f"{path} must contain the API key only")
+    return key
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Rename Immich albums to the names in album-names.tsv "
                                              "(dry run unless --write).")
     ap.add_argument("--url", default=os.environ.get("IMMICH_URL"), help="Immich URL (or IMMICH_URL)")
     ap.add_argument("--names", required=True, help="album-names.tsv from the dashboard data folder")
+    ap.add_argument("--api-key-file", help="file holding the API key (chmod 600)")
     ap.add_argument("--write", action="store_true", help="really rename")
     args = ap.parse_args(argv)
-    key = os.environ.get("IMMICH_API_KEY")
+    key = read_key_file(args.api_key_file) if args.api_key_file else os.environ.get("IMMICH_API_KEY")
     if not args.url or not key:
-        sys.exit("set --url (or IMMICH_URL) and the IMMICH_API_KEY environment variable")
+        sys.exit("set --url (or IMMICH_URL) and --api-key-file (or the IMMICH_API_KEY environment variable)")
     for s in (sys.stdout, sys.stderr):
         try:
             s.reconfigure(errors="backslashreplace")

@@ -10,3 +10,8 @@ dashboard-data/
 seed-out/
 *.sqlite3
 *.log
+
+# secrets: never commit
+*.immich_api_key
+*api_key*
+*.key
