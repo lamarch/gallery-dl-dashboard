@@ -20,10 +20,10 @@
     <h3>Disk check {{ verdict(ac) }}</h3>
     <form method="post" action="{{ base }}/album/{{ row.set_id }}/rescan"><button class="btn" {% if rescanning %}disabled{% endif %}>{% if rescanning %}Re-checking…{% else %}Re-check this album now{% endif %}</button></form>
   </div>
-  {% if ac and ac.listed_at %}<p class="small muted">Files listed {{ (now.timestamp() - ac.listed_at)|dur }} ago{% if rescanning %} · re-check running, reload in a few seconds{% endif %}. Only new or changed files are re-read.</p>{% endif %}
+  {% if ac and ac.listed_at %}<p class="small muted">Files listed {{ (now.timestamp() - ac.listed_at)|dur }} ago{% if rescanning %} · re-check running, reload in a few seconds{% endif %}. Albums whose folder changes are re-listed automatically within a minute; only new or changed files are re-read.</p>{% endif %}
   {% if ac %}
   <dl class="facts">
-    <div><dt>Files checked</dt><dd>{{ ac.checked|n }}/{{ ac.media|n }} · {{ ac.bytes|bytes }}</dd></div>
+    <div><dt>Files on disk</dt><dd>{{ ac.media|n }} · {{ ac.bytes|bytes }}{% if ac.checked < ac.media %} · <span class="t-warn">{{ ac.checked|n }} checked so far</span>{% else %} · all checked{% endif %}</dd></div>
     <div><dt>Positions (num)</dt><dd>{% if ac.max_num %}1–{{ ac.max_num }}{% if ac.num_gaps %} · <span class="t-bad">gaps: {% for s, e in ac.num_gaps %}{{ s if s == e else s ~ '–' ~ e }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% else %} · no gap{% endif %}{% else %}no position data{% endif %}</dd></div>
     <div><dt>Photo chain (next_photo_id)</dt><dd>{{ ac.chain }}</dd></div>
     <div><dt>Log</dt><dd>{% if ac.log_passes %}{{ ac.log_passes }} pass(es), last: {{ END_REASONS.get(ac.log_end, ac.log_end) }} · {{ ac.log_seen }} photo(s) seen{% if ac.log_expected is not none %} · last full pass: {{ ac.log_expected }}, on disk: {{ ac.media }}{% endif %}{% else %}not in the current log: checked against the disk only{% endif %}</dd></div>

@@ -373,3 +373,43 @@ def test_missing_reasons_and_ignore(tmp_path):
     s.rebuild()
     a = s.report.albums["a.70"]
     assert a.missing_estimate == 0 and a.num_gaps == [] and a.verdict == "verified"
+
+
+def test_album_that_finished_after_the_listing(tmp_path):
+    """Regression (seen live): an album listed while downloading (268/277),
+    finished afterwards; between full passes its last listed photo pointed to
+    a photo 'not on disk' and the counts were stale."""
+    from app.status import log_snapshot
+    L = Lib(str(tmp_path / "fb"))
+    ids = [str(8000 + i) for i in range(1, 6)]
+    L.chain("A", "Eighty", "a.80", ids, skip=ids[3:])          # 3 of 5 downloaded so far
+    state = {"current": "a.80", "st": _log_state(lambda f: None)}
+    s = ig.IntegrityScanner(L.root, None, None, max_mbps=1000,
+                            current_set=lambda: state["current"],
+                            log_snapshot=lambda: log_snapshot(state["st"]))
+    s.scan_once()
+    a = s.report.albums["a.80"]
+    assert a.media == 3 and a.verdict == "in progress" and not a.missing_ids
+    # the last two photos arrive, the album ends, gallery-dl moves on
+    for i, pid in enumerate(ids[3:], 4):
+        L.photo("A", "Eighty", "a.80", pid, i, ids[i] if i < 5 else "", ids[0])
+    state["current"] = "a.81"
+    state["st"] = _log_state(lambda f: [f.job_start("a.80", sleep_extractor=0)] +
+                             [f.photo(p) for p in ids] + [f.end_chain()])
+    s.rebuild()                                     # the once-a-minute refresh
+    a = s.report.albums["a.80"]
+    assert a.media == 5 and a.checked == 5
+    assert a.missing_ids == [] and a.chain == "ok", a.missing_why
+    assert a.log_expected == 5 and a.verdict == "verified"
+
+
+def test_new_album_folder_is_picked_up(tmp_path):
+    L = Lib(str(tmp_path / "fb"))
+    L.chain("A", "One", "a.90", ["9001"])
+    s = ig.IntegrityScanner(L.root, None, None, max_mbps=1000)
+    s.scan_once()
+    L.chain("A", "Brand new", "a.91", ["9101", "9102"])
+    assert s.refresh_changed()                      # folder appeared -> listed
+    s.rebuild()
+    assert s.report.albums["a.91"].media == 2
+    assert s.refresh_changed() == []                # nothing changed since

@@ -914,7 +914,8 @@ class IntegrityScanner:
         self.ignored = ignored            # callable -> {set_id: {photo_id: reason}}
         self._last_lists = None
         self._album_started: dict = {}   # set_id -> time of its last re-check
-        self.scan_lock = threading.Lock()
+        self._dir_mtimes: dict = {}      # album folder -> mtime_ns when it was listed
+        self.scan_lock = threading.RLock()
         self.report: Optional[Report] = None
         self.progress = {"phase": "waiting", "done": 0, "total": 0, "started": None, "passes": 0}
         self.lock = threading.Lock()
@@ -943,9 +944,12 @@ class IntegrityScanner:
             self.poke.clear()
 
     def rebuild(self):
-        """Re-compare the last file listing with the current log."""
-        if self._last_lists is not None:
-            self._publish(*self._last_lists, partial=False)
+        """Every minute between passes: re-list albums whose folder changed,
+        then re-compare with the current log and archive."""
+        with self.scan_lock:
+            if self._last_lists is not None:
+                self.refresh_changed()
+                self._publish(*self._last_lists, partial=False)
 
     def album_folders(self, sid: str) -> list:
         """Folders of an album right now: '... (sid)' under root/<account>/,
@@ -984,16 +988,27 @@ class IntegrityScanner:
         """List files. folders=None: the whole tree; else only these folders
         (not recursive), used to re-check one album."""
         media, json_only, other = [], [], []
+        def remember(dp):
+            try:
+                self._dir_mtimes[dp] = os.stat(dp).st_mtime_ns   # taken BEFORE listing
+            except OSError:
+                self._dir_mtimes.pop(dp, None)
+
         if folders is None:
-            walker = ((dp, sorted(ns)) for dp, ds, ns in os.walk(self.root) if not ds.sort())
+            def walker_gen():
+                for dp, ds, ns in os.walk(self.root):
+                    ds.sort()
+                    remember(dp)
+                    yield dp, sorted(os.listdir(dp)) if os.path.isdir(dp) else []
         else:
             def walker_gen():
                 for dp in folders:
+                    remember(dp)
                     try:
                         yield dp, sorted(os.listdir(dp))
                     except OSError:
                         continue
-            walker = walker_gen()
+        walker = walker_gen()
         for dirpath, names in walker:
             present = set(names)
             folder = os.path.relpath(dirpath, self.root)
@@ -1040,28 +1055,79 @@ class IntegrityScanner:
         with self.scan_lock:
             if self._last_lists is None:
                 return False
-            t = time.time()
-            folders = set(self.album_folders(sid))
-            media, json_only, other, started = self._last_lists
-            nm, nj, no = self._walk(sorted(folders))
-            cache = getattr(self, "_meta_cache", {})
-            self._read_metas(nm, cache, cache)
-            for e in nm:
-                r = self.cache.get(e.path, e._st)
-                if r is None:
-                    r = check_file(e.path, e._st)
-                    self.cache.put(r)
-                e.result = r
-            for e in nj:
-                e.meta = read_meta(e.path)
-            self.cache.commit()
-            keep = lambda e: os.path.dirname(e.path) not in folders  # noqa: E731
-            self._last_lists = ([e for e in media if keep(e)] + nm,
-                                [e for e in json_only if keep(e)] + nj,
-                                [e for e in other if keep(e)] + no, started)
-            self._album_started[sid] = t
+            self._relist(set(self.album_folders(sid)), {sid})
             self._publish(*self._last_lists, partial=False)
             return True
+
+    def _album_dirs_now(self) -> set:
+        out = set()
+        try:
+            for acc in os.scandir(self.root):
+                if acc.is_dir(follow_symlinks=False):
+                    for alb in os.scandir(acc.path):
+                        if alb.is_dir(follow_symlinks=False):
+                            out.add(alb.path)
+        except OSError:
+            pass
+        return out
+
+    def refresh_changed(self) -> list:
+        """Re-list every album folder that changed since it was listed (a file
+        added, removed or renamed changes the folder's mtime), and new or
+        removed folders. Keeps the listing fresh between full passes so that
+        comparisons with the log, the archive and the photo chain never use a
+        stale view of an album. Returns the re-listed folders."""
+        with self.scan_lock:
+            if self._last_lists is None:
+                return []
+            now_dirs = self._album_dirs_now()
+            known = {d for d in self._dir_mtimes
+                     if os.path.dirname(os.path.dirname(d)) == os.path.normpath(self.root)}
+            changed = set()
+            for d in now_dirs:
+                try:
+                    if self._dir_mtimes.get(d) != os.stat(d).st_mtime_ns:
+                        changed.add(d)
+                except OSError:
+                    changed.add(d)
+            changed |= known - now_dirs                    # removed / renamed folders
+            if not changed:
+                return []
+            sids = set()
+            for d in changed:
+                m = SID_IN_DIR.search(os.path.basename(d))
+                if m:
+                    sids.add(m.group(1))
+            for e in self._last_lists[0]:
+                if os.path.dirname(e.path) in changed and e.meta and e.meta.set_id:
+                    sids.add(e.meta.set_id)
+            self._relist(changed, sids)
+            for d in changed - now_dirs:
+                self._dir_mtimes.pop(d, None)
+            return sorted(changed)
+
+    def _relist(self, folders: set, sids: set):
+        """Replace the listing of these folders with a fresh one."""
+        t = time.time()
+        media, json_only, other, started = self._last_lists
+        nm, nj, no = self._walk(sorted(folders))
+        cache = getattr(self, "_meta_cache", {})
+        self._read_metas(nm, cache, cache)
+        for e in nm:
+            r = self.cache.get(e.path, e._st)
+            if r is None:
+                r = check_file(e.path, e._st)
+                self.cache.put(r)
+            e.result = r
+        for e in nj:
+            e.meta = read_meta(e.path)
+        self.cache.commit()
+        keep = lambda e: os.path.dirname(e.path) not in folders  # noqa: E731
+        self._last_lists = ([e for e in media if keep(e)] + nm,
+                            [e for e in json_only if keep(e)] + nj,
+                            [e for e in other if keep(e)] + no, started)
+        for sid in sids:
+            self._album_started[sid] = t
 
     def scan_once(self):
         with self.scan_lock:
