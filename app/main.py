@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from collections import OrderedDict
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -44,6 +44,7 @@ CFG = {
     "host_downloads": os.environ.get("HOST_DOWNLOADS_DIR", "./downloads"),
     "host_data": os.environ.get("HOST_DATA_DIR", "./dashboard-data"),
     "host_tools": os.environ.get("HOST_TOOLS_DIR", "./web-dashboard/tools"),
+    "host_fixorder": os.environ.get("HOST_FIXORDER", "./fix_order.py"),
 }
 
 
@@ -198,7 +199,26 @@ def ago(d, now=None):
     return fmt_dur((now - d).total_seconds()) + " ago"
 
 
+def host_path(folder_rel: str) -> str:
+    """Host-side path of an album folder (relative to DOWNLOADS_ROOT)."""
+    sub = os.path.relpath(CFG["downloads_root"], CFG["fs_path"])
+    return "/".join(p.strip("/") if i else p.rstrip("/")
+                    for i, p in enumerate([CFG["host_downloads"], sub, folder_rel]) if p not in ("", "."))
+
+
+def fixorder_cmd(folders: list, dry: bool) -> str:
+    """Ready-to-paste fix_order.py command line, every path shell-quoted."""
+    import shlex
+    step = "%g" % CFG["fix_step"]
+    args = ["python3", CFG["host_fixorder"], "--tz", CFG["fix_tz"], "--step", step]
+    if dry:
+        args.append("--dry-run")
+    args += [host_path(f) for f in folders]
+    return " ".join(shlex.quote(a) for a in args)
+
+
 templates.env.filters.update(dt=fmt_dt, bytes=fmt_bytes, dur=fmt_dur, n=fmt_int, ago=ago)
+templates.env.globals.update(fixorder_cmd=fixorder_cmd)
 templates.env.globals.update(base=CFG["base"], END_REASONS=END_REASONS, decode_exit=decode_exit,
                              tzname=str(DISPLAY_TZ))
 
@@ -278,13 +298,53 @@ def integrity_page(request: Request):
 
 
 @app.get("/dates", response_class=HTMLResponse)
-def dates_page(request: Request):
+def dates_page(request: Request, sel: list[str] = Query(default=[])):
     rep = SCANNER.report
     dr = rep.dates if rep else None
     order = {"changed": 0, "partial": 1, "not run": 2, "applied": 3, "nothing": 4}
     albums = sorted(dr.albums.values(), key=lambda a: (order.get(a.state, 9), a.set_id)) if dr else []
+    runnable, folders = safe_to_fix(rep, albums)
+    # albums chosen by hand ("force"): build the command and spell out every risk
+    chosen, chosen_folders, risks = [], [], []
+    for a in albums:
+        if a.set_id not in sel:
+            continue
+        ac = rep.albums.get(a.set_id) if rep else None
+        if not ac or not ac.folders:
+            risks.append(("bad", a.set_id, "no folder on disk: left out"))
+            continue
+        chosen.append(a)
+        chosen_folders += ac.folders
+        if not a.ready:
+            risks.append(("warn", a.set_id, f"not ready: {a.ready_reason}. If the album changes later, "
+                                            f"a new run would rewrite photos corrected now."))
+        if a.danger:
+            what = ("mtime only" if not a.danger_content else
+                    "all with a file content rewrite" if a.danger_content == a.danger else
+                    f"{a.danger_content} with a file content rewrite, the others mtime only")
+            risks.append(("bad", a.set_id, f"{a.danger} already-corrected photo(s) would be modified "
+                                           f"({what}): Immich will re-process them"))
+        if a.rounded:
+            risks.append(("info", a.set_id, f"{a.rounded} rounded mtime(s) would be restored: "
+                                            f"Immich will re-process those photos (timeline unchanged)"))
+        if a.state == "applied" and not a.rounded:
+            risks.append(("info", a.set_id, "already applied: the run changes nothing"))
     return templates.TemplateResponse(request, "dates.html", ctx(
-        request, dr=dr, dalbums=albums, cfg=CFG, page="dates"))
+        request, dr=dr, dalbums=albums, cfg=CFG, runnable=runnable, run_folders=folders,
+        sel=set(sel), chosen=chosen, chosen_folders=chosen_folders, risks=risks, page="dates"))
+
+
+def safe_to_fix(rep, albums):
+    """Albums fix_order.py can be run on now without touching a corrected file:
+    proven complete ('ready'), not run or partial, nothing already corrected
+    would change."""
+    runnable, folders = [], []
+    for a in albums:
+        ac = rep.albums.get(a.set_id) if rep else None
+        if a.ready and a.state in ("not run", "partial") and a.danger == 0 and ac and ac.folders:
+            runnable.append(a)
+            folders += ac.folders
+    return runnable, folders
 
 
 def _names_rows():

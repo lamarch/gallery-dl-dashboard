@@ -159,6 +159,7 @@ fbdl.example.com {
 | `FIXORDER_TZ` | `DISPLAY_TZ` | the `--tz` you run fix_order.py with (a different one rewrites every EXIF) |
 | `FIXORDER_STEP` | `1` | the `--step` you run fix_order.py with |
 | `HOST_DOWNLOADS_DIR` / `HOST_DATA_DIR` / `HOST_TOOLS_DIR` | `./downloads` / `./dashboard-data` / `./web-dashboard/tools` | host paths, only used to print ready-to-paste commands |
+| `HOST_FIXORDER` | `./fix_order.py` | where fix_order.py is on the host, for the commands on the Dates tab |
 
 ## Development
 

@@ -33,6 +33,7 @@ services:
       FIXORDER_TZ: "UTC"                    # the --tz you run fix_order.py with
       HOST_DOWNLOADS_DIR: "./downloads"     # host folders, for the commands shown on the Names page
       HOST_DATA_DIR: "./dashboard-data"
+      HOST_FIXORDER: "./fix_order.py"      # where fix_order.py is, for the commands on the Dates tab
     volumes:
       - ./downloads:/downloads:ro         # same mount as fb-dl, read-only
       - ./input:/input:ro                   # folder mount: sees albums.txt rewrites

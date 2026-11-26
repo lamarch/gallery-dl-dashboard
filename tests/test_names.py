@@ -170,3 +170,21 @@ def test_ignore_route(tmp_path, monkeypatch):
         assert m.IGNORES.snapshot() == {"a.1": {"123": "autre album"}}
         c.post("/album/a.1/ignore", data={"photo_id": "123", "undo": "1"}, headers=h)
         assert m.IGNORES.snapshot() == {}
+
+
+def test_fixorder_command_is_shell_safe(tmp_path, monkeypatch):
+    import shlex
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("INTEGRITY", "0")
+    monkeypatch.setenv("LOG_FILE", str(tmp_path / "none.log"))
+    monkeypatch.setenv("HOST_DOWNLOADS_DIR", "./dl dir")
+    monkeypatch.setenv("FIXORDER_TZ", "Europe/Berlin")
+    monkeypatch.setenv("FIXORDER_STEP", "0.1")
+    import importlib
+    import app.main as m
+    m = importlib.reload(m)
+    evil = "Acc/L'été $(rm -rf ~) `x` 🎄 \\ (a.1)"
+    cmd = m.fixorder_cmd([evil, "Acc/Новый год (a.2)"], dry=True)
+    assert shlex.split(cmd) == ["python3", "./fix_order.py", "--tz", "Europe/Berlin", "--step", "0.1",
+                                "--dry-run", f"./dl dir/facebook/{evil}", "./dl dir/facebook/Acc/Новый год (a.2)"]
+    assert "--dry-run" not in m.fixorder_cmd([evil], dry=False)

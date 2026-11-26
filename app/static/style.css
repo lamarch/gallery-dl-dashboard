@@ -144,3 +144,4 @@ ul.ids { columns: 3 220px; padding-left: 18px; font-family: var(--mono); font-si
 .nameform input { flex: 1; min-width: 0; font: inherit; padding: 4px 8px; border-radius: 6px;
   border: 1px solid var(--line); background: var(--panel); color: var(--text); }
 tr.sev-ok td { background: var(--ok-bg); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

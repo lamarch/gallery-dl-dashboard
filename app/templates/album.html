@@ -92,6 +92,14 @@
   <p class="muted">If run now with <code>--tz {{ cfg.fix_tz }} --step {{ '%g' % cfg.fix_step }}</code>:
     {{ ad.files|selectattr('would_mtime')|list|length }} mtime change(s), {{ ad.files|selectattr('would_content')|list|length }} content change(s){% if ad.danger %}, <b class="t-bad">{{ ad.danger }} of them on already-corrected files</b>{% endif %}.
     Ready to run: {% if ad.ready %}<span class="t-ok">yes</span>{% else %}<span class="t-warn">no</span>{% endif %} ({{ ad.ready_reason }}).</p>
+  {% if ad.ready and ad.state in ('not run', 'partial') and ad.danger == 0 and ac and ac.folders %}
+  <details class="alert info"><summary>Command to run fix_order.py on this album</summary>
+    <p class="small">Preview first (writes nothing):</p><pre>{{ fixorder_cmd(ac.folders, True) }}</pre>
+    <p class="small">Then for real:</p><pre>{{ fixorder_cmd(ac.folders, False) }}</pre>
+  </details>
+  {% elif ad.state == 'changed' %}
+  <p class="alert bad small">Do not run fix_order.py on this album: it would modify photos it had already corrected (see the list below).</p>
+  {% endif %}
   {% for sev, txt in ad.notes %}<p class="alert {{ sev }}">{{ txt }}</p>{% endfor %}
   {% if ad.cross_collisions %}<p class="alert warn">Timestamps shared with other albums: {% for o, n in ad.cross_collisions.items() %}<a href="{{ base }}/album/{{ o }}">{{ o }}</a> ({{ n }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
   {% if ad.interleaved_by %}<p class="alert warn">Photos of other albums inside this album's time span in the Immich timeline: {% for i in ad.interleaved_by[:10] %}<a href="{{ base }}/album/{{ i.b }}">{{ i.b }}</a> ({{ i.inside }}){% if not loop.last %}, {% endif %}{% endfor %}{% if ad.interleaved_by|length > 10 %}…{% endif %}</p>{% endif %}
