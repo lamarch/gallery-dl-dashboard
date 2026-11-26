@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import fbset %}
 {% block title %}Album names · fb-dl{% endblock %}
 {% block content %}
 <h2>Album names</h2>
@@ -35,7 +36,7 @@
   <tbody>
   {% for r in rows %}{% set st, val = props.get(r.set_id, ('none', None)) %}
   <tr id="a-{{ r.set_id }}" class="{{ 'sev-ok' if saved == r.set_id else '' }}">
-    <td class="sid"><a href="{{ base }}/album/{{ r.set_id }}">{{ r.set_id }}</a></td>
+    <td class="sid"><a href="{{ base }}/album/{{ r.set_id }}">{{ r.set_id }}</a> {{ fbset(r.set_id) }}</td>
     <td class="name"><bdi dir="auto">{{ r.folder_title or '–' }}</bdi></td>
     <td class="name"><bdi dir="auto">{{ r.gallerydl_title or '–' }}</bdi></td>
     <td class="name">{% if r.facebook_title %}<bdi dir="auto">{{ r.facebook_title }}</bdi>{% else %}<span class="muted">–</span>{% endif %}</td>

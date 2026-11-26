@@ -155,3 +155,5 @@ pre.cmd { margin: 0; padding: 10px 76px 10px 12px; background: var(--panel); col
 .copybtn:hover { background: var(--info-bg); }
 .btn.small { font-size: 12px; padding: 2px 8px; }
 table.events form { margin: 0; }
+a.fb { font-family: system-ui, sans-serif; font-size: 11px; white-space: nowrap; }
+.fblinks { margin: -4px 0 12px; display: flex; gap: 12px; }

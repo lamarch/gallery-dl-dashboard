@@ -1,9 +1,10 @@
 {% extends "base.html" %}
-{% from "_macros.html" import verdict, thumb, fblink %}
+{% from "_macros.html" import verdict, thumb, fblink, fbset, fbaccount %}
 {% block title %}{{ row.title or row.set_id }} · fb-dl{% endblock %}
 {% block content %}
 <p><a href="{{ base }}/">← all albums</a></p>
 <h2><bdi dir="auto" class="muted">{{ row.account or '?' }}</bdi> › <bdi dir="auto">{{ row.title or row.set_id }}</bdi></h2>
+<p class="fblinks">{{ fbset(row.set_id) }} {{ fbaccount(d.user_id if d else none) }}</p>
 <dl class="facts">
   <div><dt>Album ID</dt><dd>{{ row.set_id }}</dd></div>
   <div><dt>Position in albums.txt</dt><dd>{{ row.pos or 'not listed' }}</dd></div>

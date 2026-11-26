@@ -16,3 +16,21 @@
 {% macro fblink(pid, sid) -%}
 <a rel="noreferrer noopener" target="_blank" href="https://www.facebook.com/photo/?fbid={{ pid }}&amp;set={{ sid }}">{{ pid }}</a>
 {%- endmacro %}
+
+{% macro fbset(sid) -%}
+{%- if sid and not sid.startswith('?') -%}
+<a class="fb" rel="noreferrer noopener" target="_blank" title="Open the album on Facebook" href="https://www.facebook.com/media/set/?set={{ sid|urlencode }}">↗&nbsp;FB</a>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro fbphoto(pid, sid) -%}
+{%- if pid and pid.isdigit() -%}
+<a rel="noreferrer noopener" target="_blank" title="Open the photo on Facebook" href="https://www.facebook.com/photo/?fbid={{ pid }}{% if sid %}&amp;set={{ sid|urlencode }}{% endif %}">{{ pid }}</a>
+{%- else %}{{ pid or '–' }}{% endif -%}
+{%- endmacro %}
+
+{% macro fbaccount(uid) -%}
+{%- if uid -%}
+<a class="fb" rel="noreferrer noopener" target="_blank" title="Open the account's albums on Facebook" href="https://www.facebook.com/profile.php?id={{ uid|urlencode }}&amp;sk=photos_albums">↗&nbsp;account</a>
+{%- endif -%}
+{%- endmacro %}

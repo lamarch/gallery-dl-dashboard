@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import verdict %}
+{% from "_macros.html" import verdict, fbset %}
 {% block title %}Dates · fb-dl{% endblock %}
 {% block content %}
 <h2>Dates &amp; order <small class="muted">fix_order.py status, read-only</small></h2>
@@ -94,7 +94,7 @@
   <tr class="sev-{{ 'bad' if a.state == 'changed' else 'warn' if a.state == 'partial' or a.overflows or a.inner_collisions else 'ok' }}">
     <td><input type="checkbox" name="sel" value="{{ a.set_id }}" {% if a.set_id in sel %}checked{% endif %} aria-label="Select {{ a.set_id }}"></td>
     <td><span class="dt dt-{{ a.state|replace(' ', '-') }}">{{ a.state }}</span></td>
-    <td class="name"><a href="{{ base }}/album/{{ a.set_id }}">{% if ac %}<bdi dir="auto" class="muted">{{ ac.username or '?' }}</bdi> › <bdi dir="auto">{{ ac.title or a.set_id }}</bdi>{% else %}{{ a.set_id }}{% endif %}</a><div class="sid">{{ a.set_id }}</div></td>
+    <td class="name"><a href="{{ base }}/album/{{ a.set_id }}">{% if ac %}<bdi dir="auto" class="muted">{{ ac.username or '?' }}</bdi> › <bdi dir="auto">{{ ac.title or a.set_id }}</bdi>{% else %}{{ a.set_id }}{% endif %}</a><div class="sid">{{ a.set_id }} {{ fbset(a.set_id) }}</div></td>
     <td class="num">{{ a.files|length }}</td>
     <td class="num">{{ a.files|selectattr('mtime_ok')|list|length }}{% if a.rounded %}<div class="small muted">+{{ a.rounded }} rounded</div>{% endif %}</td>
     <td class="num">{{ a.files|selectattr('tag_ok')|list|length }}</td>

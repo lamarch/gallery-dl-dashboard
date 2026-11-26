@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import verdict %}
+{% from "_macros.html" import verdict, fbset %}
 {% block content %}
 {% if albums_error %}<p class="alert bad">{{ albums_error }}</p>{% endif %}
 {% if flagged %}
@@ -35,7 +35,7 @@
       <td><span class="st st-{{ r.state }}">{{ r.state }}</span></td>
       <td class="name">{% if r.set_id %}<a href="{{ base }}/album/{{ r.set_id }}">{% endif %}
         {% if r.title %}<bdi dir="auto" class="muted">{{ r.account or '?' }}</bdi> › <bdi dir="auto">{{ r.title }}</bdi>{% else %}<span class="muted">not on disk yet</span>{% endif %}
-        {% if r.set_id %}</a>{% endif %}<div class="sid">{{ r.set_id or 'no set id' }}</div></td>
+        {% if r.set_id %}</a>{% endif %}<div class="sid">{{ r.set_id or 'no set id' }} {{ fbset(r.set_id) }}</div></td>
       <td class="num">{{ r.passes }}</td>
       <td>{{ r.end_label or '–' }}</td>
       <td class="num">{% if r.passes %}{{ r.downloaded|n }} / {{ r.skipped|n }}{% else %}–{% endif %}</td>

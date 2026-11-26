@@ -39,6 +39,7 @@ class AlbumDir:
     last_change: float = 0.0      # max ctime (mtime is rewritten by fix_order)
     title: Optional[str] = None   # from JSON
     username: Optional[str] = None
+    user_id: Optional[str] = None    # Facebook account ID of the album owner (JSON)
     media_ids: set = field(default_factory=set)
 
 
@@ -121,6 +122,8 @@ def scan(root: str, fs_path: Optional[str] = None) -> DiskSnapshot:
                         d = json.load(fh)
                     a.title = d.get("title") or None
                     a.username = d.get("username") or None
+                    uid = str(d.get("user_id") or "")
+                    a.user_id = uid if uid.isdigit() else None
                     a.set_id = a.set_id or d.get("set_id")
                 except (OSError, ValueError, AttributeError):
                     pass

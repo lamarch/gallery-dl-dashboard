@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import verdict, thumb, fblink %}
+{% from "_macros.html" import verdict, thumb, fblink, fbset %}
 {% block title %}Disk check · fb-dl{% endblock %}
 {% block content %}
 <div class="toolbar">
@@ -71,7 +71,7 @@
     {% for a in albums %}
     <tr class="sev-{{ 'bad' if a.verdict == 'problems' else 'warn' if a.verdict == 'warnings' else 'ok' }}">
       <td>{{ verdict(a) }}</td>
-      <td class="name"><a href="{{ base }}/album/{{ a.set_id }}"><bdi dir="auto" class="muted">{{ a.username or '?' }}</bdi> › <bdi dir="auto">{{ a.title or a.set_id }}</bdi></a><div class="sid">{{ a.set_id }}</div></td>
+      <td class="name"><a href="{{ base }}/album/{{ a.set_id }}"><bdi dir="auto" class="muted">{{ a.username or '?' }}</bdi> › <bdi dir="auto">{{ a.title or a.set_id }}</bdi></a><div class="sid">{{ a.set_id }} {{ fbset(a.set_id) }}</div></td>
       <td class="num">{{ a.checked|n }}/{{ a.media|n }}</td>
       <td class="num">{% if a.max_num %}1–{{ a.max_num }}{% else %}–{% endif %}</td>
       <td>{{ a.chain }}</td>
