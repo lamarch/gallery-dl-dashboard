@@ -348,3 +348,28 @@ def test_rescan_one_album(tmp_path):
     assert a60.listed_at > listed
     assert s.report.albums["a.61"].listed_at == listed     # other albums keep their listing
     assert s.report.albums["a.61"].media == 1
+
+
+def test_missing_reasons_and_ignore(tmp_path):
+    L = Lib(str(tmp_path / "fb"))
+    # 7003 missing in the middle (gap at position 3); the last photo points to 7009 (end)
+    L.chain("A", "Seven", "a.70", ["7001", "7002", "7003", "7004", "7009"], skip=("7003", "7009"))
+    ignored = {}
+    s = ig.IntegrityScanner(L.root, None, None, max_mbps=1000, ignored=lambda: ignored)
+    s.scan_once()
+    a = s.report.albums["a.70"]
+    assert a.missing_in_order == ["7003", "7009"] and a.missing_pos == {"7003": 3, "7009": 5}
+    assert "END of the album" in a.missing_why["7009"][0]
+    assert "position 2" in a.missing_why["7003"][0]
+    assert a.verdict == "problems"
+    # the end one is Facebook wrapping to another album: ignore it
+    ignored["a.70"] = {"7009": "belongs to another album"}
+    s.rebuild()
+    a = s.report.albums["a.70"]
+    assert a.missing_ids == ["7003"] and a.missing_estimate == 1
+    assert a.ignored_missing == {"7009": "belongs to another album"}
+    # ignoring the middle one too clears the album (its gap is accounted for)
+    ignored["a.70"]["7003"] = "deleted on Facebook"
+    s.rebuild()
+    a = s.report.albums["a.70"]
+    assert a.missing_estimate == 0 and a.num_gaps == [] and a.verdict == "verified"

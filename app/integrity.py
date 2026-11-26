@@ -499,6 +499,9 @@ class AlbumCheck:
     archived_missing: list = field(default_factory=list)
     not_archived: int = 0
     listed_at: Optional[float] = None     # when this album's files were listed
+    missing_why: dict = field(default_factory=dict)     # photo_id -> [reasons]
+    missing_pos: dict = field(default_factory=dict)     # photo_id -> expected position (num)
+    ignored_missing: dict = field(default_factory=dict) # photo_id -> reason given by the user
     # what the gallery-dl log says about this album
     log_passes: int = 0
     log_end: Optional[str] = None          # end reason of the last pass
@@ -506,6 +509,12 @@ class AlbumCheck:
     log_expected: Optional[int] = None     # photos in the last pass that reached the end
     log_not_on_disk: list = field(default_factory=list)   # [(photo_id, log status)]
     log_extra_on_disk: list = field(default_factory=list)  # on disk, not in last full pass
+
+    @property
+    def missing_in_order(self) -> list:
+        """Missing IDs by expected position (unknown positions last)."""
+        return sorted(self.missing_ids, key=lambda p: (self.missing_pos.get(p) is None,
+                                                       self.missing_pos.get(p) or 0))
 
     @property
     def log_confirmed(self) -> bool:
@@ -596,7 +605,7 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
                  archive: Optional[set], archive_error: Optional[str],
                  current_set: Optional[str], started: float, now: float,
                  log: Optional[dict] = None, present_now=None,
-                 album_started: Optional[dict] = None) -> Report:
+                 album_started: Optional[dict] = None, ignored: Optional[dict] = None) -> Report:
     """`log`: {set_id: {"passes", "last_end", "last_ids", "photos": {id: (status, ts)}}}
     as built by status.log_snapshot(). `started` is when the files were listed:
     photos the log saw after that cannot be on the list yet and are ignored."""
@@ -702,11 +711,27 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
                     missing.remove(last)
             a.missing_ids = sorted({nid for _, nid in missing})
             a.chain = "broken" if missing else ("in progress" if a.in_progress else "ok")
+            for m, nid in missing:
+                why = a.missing_why.setdefault(nid, [])
+                if m.num and a.max_num and m.num == a.max_num:
+                    why.append(f"the last photo on disk (position {m.num}) says it comes next: "
+                               f"either a photo is missing at the END of the album, or Facebook's "
+                               f"'next' wraps to a photo outside the album")
+                else:
+                    why.append(f"the photo at position {m.num or '?'} says it comes next, "
+                               f"but it is not on disk")
+                if m.num and (m.num + 1) not in {mm.num for mm in metas}:
+                    a.missing_pos.setdefault(nid, m.num + 1)
         for f in firsts:
             if f not in by_meta and not a.in_progress:
                 a.first_missing = True
                 if f not in a.missing_ids:
                     a.missing_ids.insert(0, f)
+                a.missing_why.setdefault(f, []).append(
+                    "Facebook gave it as the album's FIRST photo, but it is not on disk "
+                    "(a photo added at the start of the album after the download?)")
+                if 1 not in {m.num for m in metas}:
+                    a.missing_pos.setdefault(f, 1)
         if not nums and not any(m.next_id for m in metas) and metas:
             a.issues.append(Issue("info", "no_order", "no position data in JSON: completeness cannot be proven"))
 
@@ -763,6 +788,14 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
             if st == "pending" and in_prog:
                 continue
             a.log_not_on_disk.append((pid, st))
+            a.missing_why.setdefault(pid, []).append(
+                {"downloaded": "the log says gallery-dl downloaded it, but the file is not on disk",
+                 "skipped": "the log says gallery-dl skipped it as already downloaded, but it is not on disk",
+                 "missing": "gallery-dl found no download URL for it (Facebook soft block)",
+                 "failed": "its download failed",
+                 "unknown": "its download did not finish",
+                 "pending": "gallery-dl reached it but the pass stopped before downloading it",
+                 }.get(st, f"log status: {st}"))
         by_st = defaultdict(list)
         for pid, st in a.log_not_on_disk:
             by_st[st].append(pid)
@@ -801,9 +834,24 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
                                   f"({END_REASONS.get(a.log_end, a.log_end)})"))
 
     # ---- missing photos: JSON positions/chain + log --------------------------------
+    ignored = ignored or {}
     for a in rep.albums.values():
         known = list(dict.fromkeys(a.missing_ids + [pid for pid, _ in a.log_not_on_disk]))
+        ign = ignored.get(a.set_id, {})
+        a.ignored_missing = {pid: ign[pid] for pid in known if pid in ign}
+        known = [pid for pid in known if pid not in ign]
         a.missing_ids = known
+        a.log_not_on_disk = [(p, st) for p, st in a.log_not_on_disk if p not in ign]
+        # positions taken by ignored photos are not gaps any more
+        ign_pos = {a.missing_pos[p] for p in a.ignored_missing if p in a.missing_pos}
+        if ign_pos:
+            gaps = [n for s, b in a.num_gaps for n in range(s, b + 1) if n not in ign_pos]
+            a.num_gaps = _ranges(gaps)
+        if a.ignored_missing:
+            a.issues.append(Issue("info", "ignored",
+                                  f"{len(a.ignored_missing)} missing photo(s) ignored by you"))
+        if not known and a.chain == "broken":
+            a.chain = "ok (ignored breaks)"
         gap_count = sum(b - s + 1 for s, b in a.num_gaps)
         a.missing_estimate = max(gap_count, len(known))
         if a.missing_estimate:
@@ -850,7 +898,7 @@ class IntegrityScanner:
                  max_mbps: float = 40.0, rescan_every: float = 900.0,
                  current_set=lambda: None, clock=time.time, log_snapshot=None,
                  rebuild_every: float = 60.0, fix_tz=None, fix_tz_name: str = "UTC",
-                 fix_step: float = 1.0):
+                 fix_step: float = 1.0, ignored=None):
         self.root = root
         self.cache = Cache(cache_path)
         self.archive_path = archive_path
@@ -863,6 +911,7 @@ class IntegrityScanner:
         self.fix_tz = fix_tz
         self.fix_tz_name = fix_tz_name
         self.fix_step = fix_step
+        self.ignored = ignored            # callable -> {set_id: {photo_id: reason}}
         self._last_lists = None
         self._album_started: dict = {}   # set_id -> time of its last re-check
         self.scan_lock = threading.Lock()
@@ -1068,7 +1117,8 @@ class IntegrityScanner:
         log = self.log_snapshot() if self.log_snapshot else None
         rep = build_report(media, json_only, other, archive, aerr,
                            self.current_set(), started, self.clock(), log,
-                           present_now=self.present_now, album_started=dict(self._album_started))
+                           present_now=self.present_now, album_started=dict(self._album_started),
+                           ignored=self.ignored() if self.ignored else None)
         rep.partial = partial
         from .dates import build_dates
         from datetime import timezone as _tz

@@ -145,3 +145,28 @@ def test_routes_refuse_cross_site_posts(tmp_path, monkeypatch):
         assert r.status_code == 303
         assert "Réveillon" in c.get("/names").text
         assert c.post("/integrity/rescan", headers={"origin": "https://evil.example"}).status_code == 403
+
+
+def test_ignore_route(tmp_path, monkeypatch):
+    pytest.importorskip("httpx")
+    root, _ = _lib(tmp_path)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOADS_ROOT", str(root))
+    monkeypatch.setenv("LOG_FILE", str(tmp_path / "none.log"))
+    monkeypatch.setenv("ALBUMS_FILE", str(tmp_path / "none.txt"))
+    monkeypatch.setenv("INTEGRITY", "0")
+    import importlib
+    import app.main as m
+    m = importlib.reload(m)
+    from fastapi.testclient import TestClient
+    with TestClient(m.app) as c:
+        h = {"sec-fetch-site": "same-origin"}
+        assert c.post("/album/a.1/ignore", data={"photo_id": "1x"}, headers=h).status_code == 400
+        assert c.post("/album/a.1/ignore", data={"photo_id": "123"},
+                      headers={"sec-fetch-site": "cross-site"}).status_code == 403
+        r = c.post("/album/a.1/ignore", data={"photo_id": "123", "reason": "autre\talbum"},
+                   headers=h, follow_redirects=False)
+        assert r.status_code == 303
+        assert m.IGNORES.snapshot() == {"a.1": {"123": "autre album"}}
+        c.post("/album/a.1/ignore", data={"photo_id": "123", "undo": "1"}, headers=h)
+        assert m.IGNORES.snapshot() == {}

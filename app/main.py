@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from . import albums as albums_mod
 from . import disk as disk_mod
 from .integrity import IntegrityScanner
+from .ignores import Ignores
 from .names import NamesFile, read_albumprops
 from .logparse import END_REASONS, LogTail, decode_exit, set_log_tz
 from .status import AlbumRow, album_rows, event_counts, header, log_snapshot
@@ -127,11 +128,14 @@ def same_origin(request: Request) -> bool:
     return bool(origin) and urlsplit(origin).netloc == host
 
 
+IGNORES = Ignores(os.path.join(CFG["data_dir"], "ignored-missing.tsv")
+                  if os.path.isdir(CFG["data_dir"]) and os.access(CFG["data_dir"], os.W_OK) else None)
+
 SCANNER = IntegrityScanner(CFG["downloads_root"], _cache_path, CFG["archive_file"],
                            CFG["integrity_mbps"], CFG["integrity_every"], _locked_current_set,
                            log_snapshot=_locked_log_snapshot,
                            fix_tz=_tz(CFG["fix_tz"], timezone.utc), fix_tz_name=CFG["fix_tz"],
-                           fix_step=CFG["fix_step"])
+                           fix_step=CFG["fix_step"], ignored=IGNORES.snapshot)
 
 
 @asynccontextmanager
@@ -343,6 +347,38 @@ def album_rescan(request: Request, set_id: str):
             finally:
                 RESCANS.discard(set_id)
         threading.Thread(target=job, daemon=True, name=f"rescan-{set_id}").start()
+    from urllib.parse import quote
+    return RedirectResponse(f"{CFG['base']}/album/{quote(set_id)}#disk-check", status_code=303)
+
+
+def _rebuild_soon():
+    """Recompute the report in the background (no file is re-read)."""
+    def job():
+        if SCANNER.scan_lock.acquire(blocking=False):   # a running pass will include it anyway
+            try:
+                SCANNER.rebuild()
+            except Exception as e:
+                SCANNER.last_error = f"rebuild: {e.__class__.__name__}: {e}"
+            finally:
+                SCANNER.scan_lock.release()
+    threading.Thread(target=job, daemon=True).start()
+
+
+@app.post("/album/{set_id}/ignore")
+def album_ignore(request: Request, set_id: str, photo_id: str = Form(...), reason: str = Form(""),
+                 undo: str = Form("")):
+    if not same_origin(request):
+        raise HTTPException(403, "cross-site request refused")
+    if not photo_id.isdigit():
+        raise HTTPException(400, "invalid photo id")
+    try:
+        if undo:
+            IGNORES.remove(set_id, photo_id)
+        else:
+            IGNORES.add(set_id, photo_id, reason or "not part of this album")
+    except OSError as e:
+        raise HTTPException(500, str(e))
+    _rebuild_soon()
     from urllib.parse import quote
     return RedirectResponse(f"{CFG['base']}/album/{quote(set_id)}#disk-check", status_code=303)
 

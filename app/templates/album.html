@@ -36,12 +36,43 @@
   </div>
   {% endfor %}
   {% if ac.missing_ids %}
-  <p>Known IDs of missing photos (open on Facebook to check):</p>
-  <ul class="ids">{% for pid in ac.missing_ids %}<li>{{ fblink(pid, ac.set_id) }}</li>{% endfor %}</ul>
+  <h4>Missing photos</h4>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Photo</th><th>Why it is considered missing</th><th>If it is not part of this album</th></tr></thead>
+    <tbody>{% for pid in ac.missing_ids %}
+      <tr>
+        <td class="nowrap">{{ fblink(pid, ac.set_id) }}{% if ac.missing_pos.get(pid) %}<div class="small muted">expected position {{ ac.missing_pos[pid] }}</div>{% endif %}</td>
+        <td class="small">{% for w in ac.missing_why.get(pid, ['gap in the photo chain']) %}<div>{{ w }}</div>{% endfor %}</td>
+        <td><form method="post" action="{{ base }}/album/{{ ac.set_id }}/ignore" class="nameform">
+          <input type="hidden" name="photo_id" value="{{ pid }}">
+          <input name="reason" placeholder="reason (optional)" maxlength="200" aria-label="Reason for ignoring {{ pid }}">
+          <button class="btn">Ignore</button></form></td>
+      </tr>{% endfor %}</tbody>
+  </table></div>
+  <details class="alert info" open><summary><b>What to do</b></summary>
+    <ol class="small">
+      <li><b>Open the photo on Facebook</b> (click its ID). If it does not open, or it belongs to another album,
+        it is not missing from this one: click <b>Ignore</b>.</li>
+      <li>If it really belongs to this album, re-download from that photo to the end of the album with this line
+        (gallery-dl starts at that photo, follows the album to its end into the same folder, and skips what you already have):
+        <pre>{% for pid in ac.missing_in_order %}https://www.facebook.com/photo/?fbid={{ pid }}&amp;set={{ ac.set_id }}&amp;setextract
+{% endfor %}</pre>
+        {% if ac.missing_ids|length > 1 %}<span class="muted">Listed in album order: the first line alone re-walks the album from that photo to its end, which also reaches the others when they come after it.</span>{% endif %}</li>
+      <li><b>Only add it to <code>albums.txt</code> while gallery-dl is not running</b>: gallery-dl rewrites that
+        file from memory each time an album finishes, so an edit made during a run is lost. Wait until the header says
+        <i>Finished</i> (or stop it with <code>docker compose stop fb-dl</code>), add the line at the end of
+        <code>albums.txt</code>, then <code>docker compose start fb-dl</code>. The usual 1&nbsp;h pause applies first.</li>
+      <li>When it is done, click <b>Re-check this album now</b>.</li>
+    </ol>
+  </details>
   {% endif %}
-  {% if ac.log_not_on_disk %}
-  <p>Seen in the log but not on disk:</p>
-  <ul class="ids">{% for pid, st in ac.log_not_on_disk %}<li>{{ fblink(pid, ac.set_id) }} <span class="t-bad">{{ {'downloaded': 'downloaded, file gone', 'skipped': 'skipped as already had', 'missing': 'no download URL', 'failed': 'download failed', 'unknown': 'download unfinished', 'pending': 'not downloaded yet'}.get(st, st) }}</span></li>{% endfor %}</ul>
+  {% if ac.ignored_missing %}
+  <details><summary>{{ ac.ignored_missing|length }} missing photo(s) ignored</summary>
+  <ul class="ids">{% for pid, reason in ac.ignored_missing.items() %}<li>{{ fblink(pid, ac.set_id) }} <span class="muted">{{ reason }}</span>
+    <form method="post" action="{{ base }}/album/{{ ac.set_id }}/ignore" style="display:inline">
+      <input type="hidden" name="photo_id" value="{{ pid }}"><input type="hidden" name="undo" value="1">
+      <button class="btn small">Un-ignore</button></form></li>{% endfor %}</ul>
+  </details>
   {% endif %}
   {% if ac.log_extra_on_disk %}
   <details><summary>{{ ac.log_extra_on_disk|length }} photo(s) on disk not seen in the last full pass</summary>
@@ -86,7 +117,7 @@
 {% if row.missing or row.failed %}
 <section>
   <h3>Photos to recover</h3>
-  <p class="muted">Not on disk. Open one to check it on Facebook; to re-download, uncomment this album in albums.txt.</p>
+  <p class="muted">Not on disk. See “What to do” in the disk check above to re-download them.</p>
   <ul class="ids">
   {% for pid in row.missing %}<li><a rel="noreferrer noopener" target="_blank" href="https://www.facebook.com/photo/?fbid={{ pid }}&amp;set={{ row.set_id }}">{{ pid }}</a> <span class="t-bad">no download URL</span></li>{% endfor %}
   {% for pid in row.failed %}<li><a rel="noreferrer noopener" target="_blank" href="https://www.facebook.com/photo/?fbid={{ pid }}&amp;set={{ row.set_id }}">{{ pid }}</a> <span class="t-bad">download failed</span></li>{% endfor %}
