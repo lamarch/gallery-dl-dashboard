@@ -5,6 +5,8 @@ WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
+# fail the build (not the running container) if a dependency is missing
+RUN DATA_DIR=/nonexistent INTEGRITY=0 LOG_FILE=/nonexistent python -c "import app.main"
 
 # runs as the uid given in compose ("user: 1000:1000"); nothing here needs root
 EXPOSE 8000
