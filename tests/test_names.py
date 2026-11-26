@@ -185,6 +185,6 @@ def test_fixorder_command_is_shell_safe(tmp_path, monkeypatch):
     m = importlib.reload(m)
     evil = "Acc/L'été $(rm -rf ~) `x` 🎄 \\ (a.1)"
     cmd = m.fixorder_cmd([evil, "Acc/Новый год (a.2)"], dry=True)
-    assert shlex.split(cmd) == ["python3", "./fix_order.py", "--tz", "Europe/Berlin", "--step", "0.1",
+    assert shlex.split(cmd) == ["python3", "./web-dashboard/tools/fix_order.py", "--tz", "Europe/Berlin", "--step", "0.1",
                                 "--dry-run", f"./dl dir/facebook/{evil}", "./dl dir/facebook/Acc/Новый год (a.2)"]
     assert "--dry-run" not in m.fixorder_cmd([evil], dry=False)
