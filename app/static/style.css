@@ -153,3 +153,5 @@ pre.cmd { margin: 0; padding: 10px 76px 10px 12px; background: var(--panel); col
 .copybtn { position: absolute; top: 6px; right: 6px; font: inherit; font-size: 12px; padding: 3px 10px;
   border-radius: 6px; border: 1px solid var(--accent); background: var(--panel); color: var(--accent); cursor: pointer; }
 .copybtn:hover { background: var(--info-bg); }
+.btn.small { font-size: 12px; padding: 2px 8px; }
+table.events form { margin: 0; }

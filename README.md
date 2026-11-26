@@ -52,7 +52,10 @@ missing**.
   touching `.albumprops` files and never one it did not write.
 - **Sessions** (one per gallery-dl start): result / exit code, interrupted
   runs (crash, power cut), time spent in each kind of sleep and 429 wait.
-- **Events**: every warning and error, with tracebacks; **Diagnostics**: log
+- **Events**: every warning and error, with tracebacks; acknowledge the ones
+  you have seen (one by one or all at once) so that the header, the menu badge
+  and the home page only count new issues (stored in the data folder, stable
+  across restarts); **Diagnostics**: log
   lines the parser does not know yet, as privacy-safe templates.
 
 ## Privacy

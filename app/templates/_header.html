@@ -51,7 +51,7 @@
     <div class="tile">
       <div class="k">Last 24 h</div>
       <div class="v">{{ h.waits_24h }} <small>rate-limit waits</small></div>
-      <div class="s">{% if h.problems_24h %}<a class="t-bad" href="{{ base }}/events?sev=bad">{{ h.problems_24h }} serious problem(s)</a>{% else %}no serious problems{% endif %}</div>
+      <div class="s">{% if h.problems_24h %}<a class="t-bad" href="{{ base }}/events?sev=bad">{{ h.problems_24h }} new serious problem(s)</a>{% else %}no new serious problems{% endif %}</div>
     </div>
   </div>
 </header>

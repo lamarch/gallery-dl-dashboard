@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from . import albums as albums_mod
 from . import disk as disk_mod
 from .integrity import IntegrityScanner
+from .acks import Acks
 from .ignores import Ignores
 from .names import NamesFile, read_albumprops
 from .logparse import END_REASONS, LogTail, decode_exit, set_log_tz
@@ -129,6 +130,9 @@ def same_origin(request: Request) -> bool:
     return bool(origin) and urlsplit(origin).netloc == host
 
 
+ACKS = Acks(os.path.join(CFG["data_dir"], "acknowledged-events.json")
+            if os.path.isdir(CFG["data_dir"]) and os.access(CFG["data_dir"], os.W_OK) else None)
+
 IGNORES = Ignores(os.path.join(CFG["data_dir"], "ignored-missing.tsv")
                   if os.path.isdir(CFG["data_dir"]) and os.access(CFG["data_dir"], os.W_OK) else None)
 
@@ -238,14 +242,16 @@ templates.env.globals.update(base=CFG["base"], END_REASONS=END_REASONS, decode_e
 
 def ctx(request, **kw):
     now = datetime.now(timezone.utc)
+    acked = kw.pop("acked", None) or ACKS.checker()
     with MON.lock:
         st = MON.tail.state
-        h = header(st, MON.albums, MON.disk, now)
+        h = header(st, MON.albums, MON.disk, now, acked=acked)
         kw.update(ir=SCANNER.report, ip=SCANNER.progress, scanner=SCANNER,
                   integrity_on=CFG["integrity"])
         kw.update(request=request, h=h, now=now, st=st, mon=MON, tail=MON.tail,
                   albums_error=MON.albums_error, disk=MON.disk,
-                  bad_events=sum(1 for e in st.events if e.severity == "bad"))
+                  acked=acked, acks_writable=bool(ACKS.path),
+                  bad_events=sum(1 for e in st.events if e.severity == "bad" and not acked(e)))
         return kw
 
 
@@ -269,11 +275,12 @@ def index(request: Request):
     with MON.lock:
         st = MON.tail.state
         rows = album_rows(st, MON.albums, MON.disk, current_set())
-        recent = [e for e in reversed(st.events) if e.severity != "info"][:15]
+        acked = ACKS.checker()
+        recent = [e for e in reversed(st.events) if e.severity != "info" and not acked(e)][:15]
     attach_checks(rows)
     flagged = [r for r in rows if r.severity in ("bad", "warn")]
     return templates.TemplateResponse(request, "index.html", ctx(
-        request, rows=rows, recent=recent, flagged=flagged, page="albums"))
+        request, rows=rows, recent=recent, flagged=flagged, acked=acked, page="albums"))
 
 
 @app.get("/album/{set_id}", response_class=HTMLResponse)
@@ -504,15 +511,59 @@ def sessions(request: Request):
     return templates.TemplateResponse(request, "sessions.html", ctx(request, sessions=ss, page="sessions"))
 
 
+def _filtered_events(st, kind, sev, show, acked):
+    return [e for e in reversed(st.events)
+            if (not kind or e.kind == kind) and (not sev or e.severity == sev)
+            and (show == "all" or (show == "acked") == acked(e))]
+
+
 @app.get("/events", response_class=HTMLResponse)
-def events(request: Request, kind: str = "", sev: str = "", limit: int = 500):
+def events(request: Request, kind: str = "", sev: str = "", show: str = "new", limit: int = 500):
+    acked = ACKS.checker()
     with MON.lock:
         st = MON.tail.state
-        evs = [e for e in reversed(st.events)
-               if (not kind or e.kind == kind) and (not sev or e.severity == sev)][:min(limit, 5000)]
+        allf = _filtered_events(st, kind, sev, show, acked)
+        evs = allf[:min(limit, 5000)]
         counts = event_counts(st)
+        n_new = sum(1 for e in st.events if not acked(e) and e.severity != "info")
+        n_acked = sum(1 for e in st.events if acked(e))
+        n_ackable = sum(1 for e in allf if sev == "info" or e.severity != "info") if show == "new" else 0
     return templates.TemplateResponse(request, "events.html", ctx(
-        request, evs=evs, counts=counts, kind=kind, sev=sev, page="events"))
+        request, evs=evs, total=len(allf), counts=counts, kind=kind, sev=sev, show=show,
+        n_new=n_new, n_acked=n_acked, n_ackable=n_ackable, acked=acked, page="events"))
+
+
+def _back(request: Request, default: str) -> str:
+    """Return to the page the form was posted from (same site only)."""
+    from urllib.parse import urlsplit
+    ref = request.headers.get("referer") or ""
+    u = urlsplit(ref)
+    if u.path.startswith(CFG["base"] + "/"):
+        return u.path + (("?" + u.query) if u.query else "")
+    return default
+
+
+@app.post("/events/ack")
+def events_ack(request: Request, key: list[str] = Form(default=[]), undo: str = Form(""),
+               scope: str = Form(""), kind: str = Form(""), sev: str = Form("")):
+    if not same_origin(request):
+        raise HTTPException(403, "cross-site request refused")
+    try:
+        if scope == "filtered":
+            # every currently NEW event matching the filter (info events included
+            # only when the filter explicitly asks for them)
+            acked = ACKS.checker()
+            with MON.lock:
+                keys = [e.key for e in _filtered_events(MON.tail.state, kind, sev, "new", acked)
+                        if sev == "info" or e.severity != "info"]
+            ACKS.ack(keys)
+        elif undo:
+            ACKS.unack(key)
+        else:
+            ACKS.ack(key)
+    except OSError as e:
+        raise HTTPException(500, str(e))
+    return RedirectResponse(_back(request, f"{CFG['base']}/events"), status_code=303)
 
 
 @app.get("/diagnostics", response_class=HTMLResponse)

@@ -191,7 +191,8 @@ class Header:
     avg_album: Optional[float] = None
 
 
-def header(state: LogState, albums: list, disk, now: Optional[datetime] = None) -> Header:
+def header(state: LogState, albums: list, disk, now: Optional[datetime] = None,
+           acked=None) -> Header:
     now = now or datetime.now(timezone.utc)
     s = state.session
     if s is None:
@@ -268,7 +269,7 @@ def header(state: LogState, albums: list, disk, now: Optional[datetime] = None) 
             break
         if e.kind == "wait_429":
             h.waits_24h += 1
-        elif e.severity == "bad":
+        elif e.severity == "bad" and not (acked and acked(e)):
             h.problems_24h += 1
 
     # ---- disk -------------------------------------------------------------

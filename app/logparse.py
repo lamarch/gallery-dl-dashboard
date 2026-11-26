@@ -156,6 +156,7 @@ class Event:
     set_id: Optional[str] = None
     photo_id: Optional[str] = None
     details: list = field(default_factory=list)
+    key: str = ""             # stable ID (content + occurrence), for acknowledgements
 
     @property
     def severity(self) -> str:
@@ -261,6 +262,7 @@ class LogState:
         self.events: list[Event] = []
         self.unrecognized: Counter = Counter()
         self.unrecognized_example_ts: dict = {}
+        self._event_seen: dict = {}
         self.bad_format_lines = 0
         self.orphan_lines = 0
         self.lines = 0
@@ -292,6 +294,7 @@ class LogState:
         if self._pending_tb and (ts - self._pending_tb_ts).total_seconds() <= 5:
             ev.details.extend(self._pending_tb)
         self._pending_tb = []
+        self._keyed(ev)
         self.events.append(ev)
         if j is not None:
             j.events.append(ev)
@@ -343,6 +346,16 @@ class LogState:
     def _ensure_session(self, ts):
         if self.session is None or self.session.end is not None:
             self.sessions.append(Session(idx=len(self.sessions), start=ts))
+
+    def _keyed(self, ev: "Event"):
+        """Stable ID: same log -> same IDs after a restart (the log is re-read
+        in the same order); identical events in the same second are numbered."""
+        import hashlib
+        base = hashlib.sha1("|".join((ev.ts.isoformat(), ev.kind, ev.set_id or "", ev.photo_id or "",
+                                      ev.message)).encode("utf-8", "replace")).hexdigest()[:16]
+        n = self._event_seen.get(base, 0)
+        self._event_seen[base] = n + 1
+        ev.key = f"{base}-{n}"
 
     # ------------------------------------------------------------------ feed
     def feed_line(self, line: str):
@@ -423,6 +436,7 @@ class LogState:
                                self.session.idx,
                                open_job.idx if open_job else None,
                                open_job.set_id if open_job else None)
+                    self._keyed(ev)
                     self.events.append(ev)
                     if open_job is not None:
                         open_job.events.append(ev)

@@ -50,7 +50,11 @@
 </section>
 
 <section>
-  <h2>Recent warnings &amp; problems <a class="more" href="{{ base }}/events">all events →</a></h2>
+  <h2>New warnings &amp; problems <a class="more" href="{{ base }}/events">all events →</a></h2>
+  {% if recent and acks_writable %}<form method="post" action="{{ base }}/events/ack" class="toolbar">
+    <input type="hidden" name="scope" value="filtered">
+    <span class="small muted">Acknowledge what you have seen to keep only new issues here and in the header.</span>
+    <button class="btn">Acknowledge all</button></form>{% endif %}
   {% include "_events.html" with context %}
 </section>
 {% endblock %}

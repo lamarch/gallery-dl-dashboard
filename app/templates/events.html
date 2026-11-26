@@ -15,7 +15,22 @@
       <option value="">all</option>
       {% for k, n in counts.most_common() %}<option value="{{ k }}" {% if kind == k %}selected{% endif %}>{{ k }} ({{ n }})</option>{% endfor %}
     </select></label>
+  <label>Show
+    <select name="show">
+      <option value="new" {% if show == 'new' %}selected{% endif %}>new ({{ n_new }})</option>
+      <option value="acked" {% if show == 'acked' %}selected{% endif %}>acknowledged ({{ n_acked }})</option>
+      <option value="all" {% if show == 'all' %}selected{% endif %}>all</option>
+    </select></label>
   <button>Filter</button>
 </form>
+{% if show == 'new' and n_ackable and acks_writable %}
+<form method="post" action="{{ base }}/events/ack" class="toolbar">
+  <input type="hidden" name="scope" value="filtered"><input type="hidden" name="kind" value="{{ kind }}"><input type="hidden" name="sev" value="{{ sev }}">
+  <span class="small muted">Seen them all? Acknowledged events no longer count in the header and menu; new ones still appear.</span>
+  <button class="btn">Acknowledge these {{ n_ackable }}</button>
+</form>
+{% endif %}
+{% if not acks_writable %}<p class="alert warn small">No writable data folder: acknowledgements cannot be saved.</p>{% endif %}
 {% include "_events.html" with context %}
+{% if total > evs|length %}<p class="muted small">Showing {{ evs|length }} of {{ total }}.</p>{% endif %}
 {% endblock %}
