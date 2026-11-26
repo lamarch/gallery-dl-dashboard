@@ -14,14 +14,6 @@
   <code>{{ names.path or 'memory only (no writable data folder)' }}</code>, which you can also edit by hand.
 </p>
 {% if error %}<p class="alert bad">{{ error }}</p>{% endif %}
-{% if filled %}<p class="alert info">{{ filled }} custom name(s) set from the Facebook titles.</p>{% endif %}
-{% set nfb = rows|selectattr('facebook_title')|rejectattr('custom_name')|list|length %}
-{% if nfb and names.path %}
-<form method="post" action="{{ base }}/names/use-facebook" class="toolbar">
-  <span class="small muted">Fill the empty custom names with the Facebook title ({{ nfb }} album(s) without a custom name have one). Names you already chose are kept.</span>
-  <button class="btn">Use the Facebook titles</button>
-</form>
-{% endif %}
 {% if not names.path %}<p class="alert warn">No writable data folder: names cannot be saved. Mount <code>/data</code>.</p>{% endif %}
 {% if dups %}<p class="alert warn">Same custom name on several albums (immich-folder-album-creator would merge them into one album):
   {% for k, sids in dups.items() %}<b>{{ k }}</b> ({{ sids|join(', ') }}){% if not loop.last %}; {% endif %}{% endfor %}</p>{% endif %}
@@ -54,7 +46,7 @@
     <td class="name">{% if r.facebook_title %}<bdi dir="auto">{{ r.facebook_title }}</bdi>{% else %}<span class="muted">–</span>{% endif %}</td>
     <td>
       <form method="post" action="{{ base }}/names/{{ r.set_id }}" class="nameform">
-        <input name="custom_name" value="{{ r.custom_name }}" maxlength="200" dir="auto" placeholder="keep “{{ r.folder_title }}”" aria-label="Custom name for {{ r.set_id }}">
+        <input name="custom_name" value="{{ r.custom_name }}" maxlength="200" dir="auto" placeholder="{{ r.facebook_title or r.folder_title }}" aria-label="Custom name for {{ r.set_id }}">
         <button class="btn">Save</button>
       </form>
       {% if saved == r.set_id %}<div class="small t-ok">saved</div>{% endif %}

@@ -61,8 +61,8 @@ missing**.
   final and remaining size from the average photo size, with a warning when
   the remaining download may not fit on the disk; progress bars for the
   current album, albums, photos, disk usage, each album and each Facebook page.
-- **Names**: choose the album name Immich should show (or take the
-  Facebook titles in one click), kept in
+- **Names**: choose the album name Immich should show (by default
+  the Facebook title, else the folder name), kept in
   `album-names.tsv` (data folder, editable by hand too) next to the folder
   name and gallery-dl's title. Folders are never renamed:
   `tools/apply_albumprops.py` (host `python3`, as the downloads' owner) writes immich-folder-album-creator

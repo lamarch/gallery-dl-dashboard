@@ -222,25 +222,6 @@ class NamesFile:
             self._write()
             return r
 
-    def fill_from_facebook(self) -> int:
-        """Empty custom names take the Facebook title (when it differs from
-        the folder's). Names already chosen are never overwritten."""
-        with self.lock:
-            self._reload_if_changed()
-            n = 0
-            for r in self.rows.values():
-                if not r.custom_name and r.facebook_title:
-                    try:
-                        t = clean_name(r.facebook_title)
-                    except ValueError:
-                        continue
-                    if t and t != r.folder_title:
-                        r.custom_name = t
-                        n += 1
-            if n:
-                self._write()
-            return n
-
     def duplicates(self) -> dict[str, list[str]]:
         """Effective names used by several albums (the creator tool would merge them)."""
         by = {}
