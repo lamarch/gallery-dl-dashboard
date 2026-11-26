@@ -65,7 +65,9 @@ def test_duplicates(tmp_path):
 def test_albumprops_is_valid_yaml_for_the_album_creator():
     yaml = pytest.importorskip("yaml")
     for w in WEIRD:
-        assert yaml.safe_load(albumprops_content(w)) == {"override_name": w}
+        assert yaml.safe_load(albumprops_content(w, "a.12")) == {
+            "override_name": w, "description": "Facebook album: https://www.facebook.com/media/set/?set=a.12",
+            "sort_order": "asc", "thumbnail_setting": "first"}
 
 
 def _lib(tmp_path):
@@ -109,6 +111,7 @@ def test_tool_write_only_albumprops(tmp_path):
     assert changed == {str(root / "Acc" / "Vacances (a.1)" / ".albumprops"),
                        str(root / "Acc" / "Новый год (a.2)" / ".albumprops")}
     assert read_albumprops(str(root / "Acc" / "Vacances (a.1)")) == ("ours", WEIRD[0])
+    assert after[str(root / "Acc" / "Vacances (a.1)" / ".albumprops")].decode() == albumprops_content(WEIRD[0], "a.1")
     assert read_albumprops(str(root / "Acc" / "Новый год (a.2)")) == ("ours", "Новый год")   # folder name
     assert read_albumprops(str(root / "Acc" / "Foreign (a.3)")) == ("foreign", "theirs")
     # idempotent
@@ -147,7 +150,7 @@ def test_names_priority_and_duplicates_match_the_dashboard(tmp_path):
             "a.5": ("Same (a.5)", "facebook+id"), "a.6": ("same (a.6)", "facebook+id")}
     assert album_names(rows, paths) == want
     got = tool.choose_names(tool.album_folders(str(root)), tool.read_names(str(tmp_path / "n.tsv")))
-    assert {os.path.basename(f)[os.path.basename(f).index("(") + 1:-1]: v for f, v in got.items()} == want
+    assert {sid: (n, src) for f, (n, src, sid) in got.items()} == want
 
 
 def test_routes_refuse_cross_site_posts(tmp_path, monkeypatch):

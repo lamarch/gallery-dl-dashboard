@@ -11,6 +11,14 @@ When several folders end up with the same name (the album creator would merge
 them into one album), the account folder name is added: "Name (Account)", or
 the album ID when they are in the same account.
 
+Each file also sets, for every album:
+  description: "Facebook album: <link to the album on Facebook>"
+  sort_order: asc           oldest first: the Facebook order once fix_order.py ran
+  thumbnail_setting: first  cover = oldest photo = the first one on Facebook
+They are applied when the album creator creates an album, or adds photos to
+it; for albums that already exist, set UPDATE_ALBUM_PROPS_MODE=1 (not 2:
+that one also changes sharing).
+
 Safety:
   * DRY RUN by default: prints the plan, writes nothing. --write to apply.
   * Only ever creates/replaces/removes files named `.albumprops`; never
@@ -33,6 +41,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 
 MARKER = "# managed by gallery-dl-dashboard"
 SID_IN_DIR = re.compile(r"\(([^()]+)\)\s*$")
@@ -108,12 +117,17 @@ def choose_names(folders, names):
                     out[f] = (f"{n} ({os.path.basename(os.path.dirname(f))})", src + "+account", sid)
                 elif "+id" not in src:
                     out[f] = (f"{n} ({sid})", src + "+id", sid)
-    return {f: (n, src) for f, (n, src, _) in out.items()}
+    return {f: (n, src, sid) for f, (n, src, sid) in out.items()}
 
 
-def content(name):
-    return (f"{MARKER} (tools/apply_albumprops.py): album name for immich-folder-album-creator\n"
-            f"override_name: {json.dumps(name, ensure_ascii=False)}\n")
+def content(name, set_id):
+    """Keep in sync with app/names.py albumprops_content()."""
+    fb = "https://www.facebook.com/media/set/?set=" + urllib.parse.quote(set_id, safe=".")
+    return (f"{MARKER} (tools/apply_albumprops.py): album properties for immich-folder-album-creator\n"
+            f"override_name: {json.dumps(name, ensure_ascii=False)}\n"
+            f"description: {json.dumps('Facebook album: ' + fb)}\n"
+            f"sort_order: asc\n"          # oldest first = Facebook order once fix_order.py ran
+            f"thumbnail_setting: first\n")  # cover = oldest photo = first one on Facebook
 
 
 def album_folders(root):
@@ -135,16 +149,16 @@ def plan(root, names):
     folders = album_folders(root)
     chosen = choose_names(folders, names)
     for folder in sorted(chosen):
-        want, src = chosen[folder]
+        want, src, sid = chosen[folder]
         p = os.path.join(folder, ".albumprops")
         exists = os.path.exists(p)
         cur = open(p, encoding="utf-8").read() if exists else None
         if exists and not cur.startswith(MARKER):
             actions.append(("skip", p, "a .albumprops not written by this tool exists: left untouched", src))
-        elif cur == content(want):
+        elif cur == content(want, sid):
             actions.append(("ok", p, want, src))
         else:
-            actions.append(("write", p, want, src))
+            actions.append(("write", p, (want, sid), src))
     for sid in sorted(set(s for s, (c, _) in names.items() if c) - set(folders)):
         actions.append(("missing", sid, "custom name for an album with no folder on disk", ""))
     return actions
@@ -178,7 +192,8 @@ def main(argv=None):
         if src:
             sources[src] = sources.get(src, 0) + 1
         if act != "ok":
-            print(f"{act:8} {path}  {detail}" + (f"  [{src}]" if src else ""))
+            shown = detail[0] if isinstance(detail, tuple) else detail
+            print(f"{act:8} {path}  {shown}" + (f"  [{src}]" if src else ""))
     print("summary:", ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "nothing to do")
     print(f"{sum(sources.values())} album folder(s), name taken from:",
           ", ".join(f"{k} {v}" for k, v in sorted(sources.items())) or "-")
@@ -194,7 +209,7 @@ def main(argv=None):
                 with open(path, encoding="utf-8") as fh:
                     if not fh.read().startswith(MARKER):   # re-check right before replacing
                         continue
-            write_atomic(path, content(detail))
+            write_atomic(path, content(*detail))
             done += 1
     print(f"applied: {done} file(s)")
     return 0

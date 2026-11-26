@@ -22,7 +22,7 @@ from .acks import Acks
 from .fbdata import FbStore
 from .fbpages import parse_albums_page
 from .ignores import Ignores
-from .names import NamesFile, album_names, read_albumprops
+from .names import NamesFile, album_names, albumprops_content, read_albumprops
 from .logparse import END_REASONS, LogTail, decode_exit, set_log_tz
 from .status import AlbumRow, album_rows, event_counts, header, log_snapshot
 
@@ -420,7 +420,17 @@ def _names_rows():
         props[r.set_id] = read_albumprops(a.path) if a else ("none", None)
         if a:
             paths[r.set_id] = a.path
-    return rows, props, album_names(rows, paths)
+    chosen = album_names(rows, paths)
+    for sid, (name, _src) in chosen.items():
+        st, val = props.get(sid, ("none", None))
+        if st == "ours" and val == name:
+            try:
+                with open(os.path.join(paths[sid], ".albumprops"), encoding="utf-8") as fh:
+                    if fh.read() != albumprops_content(name, sid):
+                        props[sid] = ("old", val)        # right name, older set of properties
+            except OSError:
+                props[sid] = ("unreadable", None)
+    return rows, props, chosen
 
 
 @app.get("/names", response_class=HTMLResponse)

@@ -66,7 +66,8 @@ missing**.
   `album-names.tsv` (data folder, editable by hand too) next to the folder
   name and gallery-dl's title. Folders are never renamed:
   `tools/apply_albumprops.py` (host `python3`, as the downloads' owner) writes immich-folder-album-creator
-  `.albumprops` files (`override_name`) in every album folder (custom name,
+  `.albumprops` files (`override_name`, plus the Facebook link as `description`,
+  `sort_order: asc` and `thumbnail_setting: first`) in every album folder (custom name,
   else Facebook title, else folder name; duplicates get the account or the
   album ID added), dry run by default, only ever touching `.albumprops`
   files and never one it did not write.

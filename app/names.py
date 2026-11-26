@@ -251,11 +251,17 @@ class NamesFile:
 
 
 # ------------------------------------------------------------------- .albumprops
-def albumprops_content(name: str) -> str:
+def albumprops_content(name: str, set_id: str) -> str:
+    """What tools/apply_albumprops.py writes (keep in sync with its content()).
+    A JSON string is a valid YAML double-quoted scalar."""
     import json
-    # a JSON string is a valid YAML double-quoted scalar
-    return (f"{MARKER} (tools/apply_albumprops.py): album name for immich-folder-album-creator\n"
-            f"override_name: {json.dumps(name, ensure_ascii=False)}\n")
+    import urllib.parse
+    fb = "https://www.facebook.com/media/set/?set=" + urllib.parse.quote(set_id, safe=".")
+    return (f"{MARKER} (tools/apply_albumprops.py): album properties for immich-folder-album-creator\n"
+            f"override_name: {json.dumps(name, ensure_ascii=False)}\n"
+            f"description: {json.dumps('Facebook album: ' + fb)}\n"
+            f"sort_order: asc\n"          # oldest first = Facebook order once fix_order.py ran
+            f"thumbnail_setting: first\n")  # cover = oldest photo = first one on Facebook
 
 
 def read_albumprops(folder_path: str) -> tuple[str, Optional[str]]:

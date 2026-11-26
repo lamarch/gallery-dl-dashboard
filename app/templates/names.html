@@ -7,7 +7,8 @@
   Pick the name each album should have in Immich. Folders are <b>never renamed</b> (an Immich external asset is
   identified by its path: renaming would create new assets and lose faces, albums and favorites). Instead,
   <code>tools/apply_albumprops.py</code> writes an <code>.albumprops</code> file with <code>override_name</code>
-  for immich-folder-album-creator, in <b>every</b> album folder. The name is your custom name, else the Facebook
+  for immich-folder-album-creator, in <b>every</b> album folder, with the album's Facebook link as description,
+  oldest photo first (<code>sort_order: asc</code>: the Facebook order once fix_order.py ran) and the first photo as cover. The name is your custom name, else the Facebook
   title, else the folder name without its ID; when two albums would get the same name (the album creator would merge
   them), the account folder name or the album ID is added. Names are stored in
   <code>{{ names.path or 'memory only (no writable data folder)' }}</code>, which you can also edit by hand.
@@ -63,6 +64,7 @@
       {% if not want %}<span class="muted">–</span>
       {% elif st == 'none' %}<span class="t-warn">to write</span>
       {% elif st == 'ours' %}{% if val == want[0] %}<span class="t-ok">applied</span>{% else %}<span class="t-warn">outdated: “{{ val }}”</span>{% endif %}
+      {% elif st == 'old' %}<span class="t-warn">to rewrite (older version, without description / order / cover)</span>
       {% elif st == 'foreign' %}<span class="t-warn">not ours{% if val %}: “{{ val }}”{% endif %}</span>
       {% else %}<span class="t-bad">unreadable</span>{% endif %}
     </td>
