@@ -29,7 +29,9 @@
   <h3><bdi dir="auto">{{ name }}</bdi> <small class="muted">{{ rows|length }} album(s), in the page's order</small>
     <form method="post" action="{{ base }}/facebook/forget" style="display:inline"><input type="hidden" name="page" value="{{ name }}">
       <button class="btn small" title="Remove this page's albums from the dashboard">Forget</button></form></h3>
-  <p class="alert info small">{% if sm.n %}
+  {% if sm.no_order %}<p class="alert warn small">This page was imported with an older version that did not keep
+    Facebook's album order: <b>import it again</b> (same saved file is fine) to get the # column and the downloaded range.</p>{% endif %}
+  <p class="alert info small">{% if sm.no_order %}Order unknown.{% elif sm.n %}
     Downloaded or queued: <b>{{ sm.n }}</b> of {{ sm.total }} · from <b>#{{ sm.first }}</b> to <b>#{{ sm.last }}</b>
     {% if sm.gaps %} · <span class="t-warn">skipped in between: {% for g in sm.gaps %}<a href="#fb-{{ g.sid }}">#{{ g.fb.pos }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</span>{% else %} · no gap{% endif %}
     {% if sm.first > 1 %} · #1–#{{ sm.first - 1 }} not started{% endif %}{% if sm.last < sm.total %} · #{{ sm.last + 1 }}–#{{ sm.total }} not started{% endif %}

@@ -523,6 +523,7 @@ def facebook_page(request: Request, done: str = "", error: str = ""):
     summaries = {}
     for name, rows in pages.items():
         rows.sort(key=lambda r: (r["fb"].get("pos") or 10**6, r["sid"]))
+        no_order = any(not r["fb"].get("pos") for r in rows)   # imported before positions were kept
         taken = [r["fb"].get("pos") for r in rows if r["status"] != "not downloaded" and r["fb"].get("pos")]
         if taken:
             lo, hi = min(taken), max(taken)
@@ -530,6 +531,7 @@ def facebook_page(request: Request, done: str = "", error: str = ""):
             summaries[name] = {"first": lo, "last": hi, "n": len(taken), "gaps": gaps, "total": len(rows)}
         else:
             summaries[name] = {"first": None, "last": None, "n": 0, "gaps": [], "total": len(rows)}
+        summaries[name]["no_order"] = no_order
     return templates.TemplateResponse(request, "facebook.html", ctx(
         request, pages=dict(sorted(pages.items())), summaries=summaries, done=done, error=error,
         fb_writable=bool(FBSTORE.path), page="facebook"))

@@ -162,3 +162,26 @@ def test_facebook_order_summary(tmp_path, monkeypatch):
     assert "from <b>#2</b> to <b>#4</b>" in html
     assert 'skipped in between: <a href="#fb-a.1003">#3</a>' in html
     assert "#1–#1 not started" in html and "#5–#5 not started" in html
+
+
+def test_old_import_without_positions_asks_for_reimport(tmp_path, monkeypatch):
+    pytest.importorskip("httpx")
+    for k, v in {"DATA_DIR": str(tmp_path), "INTEGRITY": "0", "LOG_FILE": str(tmp_path / "x.log"),
+                 "ALBUMS_FILE": str(tmp_path / "x.txt"), "DOWNLOADS_ROOT": str(tmp_path / "dl")}.items():
+        monkeypatch.setenv(k, v)
+    # data saved by the previous version: no "pos"
+    old = {"albums": {s: {"title": t, "count": 1, "approximate": False, "page": "P", "imported": "x"}
+                      for s, t, _ in ALBUMS}}
+    (tmp_path / "facebook-albums.json").write_text(json.dumps(old), encoding="utf-8")
+    import importlib
+    import app.main as m
+    m = importlib.reload(m)
+    from fastapi.testclient import TestClient
+    with TestClient(m.app) as c:
+        assert "import it again" in c.get("/facebook").text
+        c.post("/facebook/import", files=[("files", ("p.html", fake_page().encode(), "text/html"))],
+               headers={"sec-fetch-site": "same-origin"})
+        html = c.get("/facebook").text
+    # the re-import replaces the page's albums, now with positions (page title differs here,
+    # so the old "P" page still asks; the new one has its order)
+    assert '<td class="num">1</td>' in html and '<td class="num">5</td>' in html
