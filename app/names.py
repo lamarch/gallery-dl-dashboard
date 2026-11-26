@@ -148,16 +148,23 @@ class NamesFile:
                 self._load()
 
     # ---------------------------------------------------------------- api
-    def sync(self, albums: dict, write: bool = False) -> list[NameRow]:
-        """Merge disk albums (set_id -> (folder, gallerydl_title)) into the rows.
-        Custom and Facebook names are never touched here."""
+    def sync(self, albums: dict, write: bool = False, fb_titles: Optional[dict] = None) -> list[NameRow]:
+        """Merge disk albums (set_id -> (folder, gallerydl_title)) and Facebook
+        titles (from imported pages) into the rows. Custom names are never
+        touched here."""
         with self.lock:
             self._reload_if_changed()
             changed = False
+            for sid, t in (fb_titles or {}).items():
+                r = self.rows.get(sid)
+                if r is not None and t and r.facebook_title != t:
+                    r.facebook_title = t
+                    changed = True
             for sid, (folder, title) in albums.items():
                 r = self.rows.get(sid)
                 if r is None:
-                    self.rows[sid] = NameRow(sid, folder or "", title or "")
+                    self.rows[sid] = NameRow(sid, folder or "", title or "",
+                                             (fb_titles or {}).get(sid) or "")
                     changed = True
                 elif (folder and r.folder != folder) or (title and r.gallerydl_title != title):
                     r.folder = folder or r.folder

@@ -44,6 +44,13 @@ missing**.
   interleave in the timeline as Immich shows it now (EXIF date, else file time). The ordering
   logic is a line-by-line port of the script and was checked against the real
   script's `--dry-run`.
+- **Facebook**: upload a saved albums page ("Web Page, Complete", after
+  scrolling) to get Facebook's own photo count per album. It is parsed in
+  memory and only album IDs, titles and counts are kept. The disk check then
+  compares each album with Facebook's count (this also catches photos missing
+  at the end of an album), the header shows "seen / expected" and a better
+  ETA, the Names tab gets the Facebook titles, and albums that are on
+  Facebook but not downloaded are listed with ready lines for albums.txt.
 - **Names**: choose the album name Immich should show, kept in
   `album-names.tsv` (data folder, editable by hand too) next to the folder
   name and gallery-dl's title. Folders are never renamed:
@@ -78,6 +85,8 @@ app/                  the dashboard (FastAPI + Jinja, runs as an unprivileged ui
   integrity.py        deep read-only disk check (decode, completeness, duplicates, archive)
   dates.py            read-only fix_order.py status (dates, order, overlaps)
   names.py            album-names.tsv (custom album names) and .albumprops reading
+  fbpages.py          reads a saved Facebook albums page (album IDs, titles, counts)
+  fbdata.py           facebook-albums.json (what was extracted, never the page)
 Dockerfile            builds the dashboard image (only app/ goes in, see .dockerignore)
 tests/                pytest suite, fake-log generator, demo builder
 tools/seed_archive.py fill a gallery-dl download archive from files already on disk

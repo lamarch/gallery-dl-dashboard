@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fbset, verdict %}
+{% block title %}Facebook · fb-dl{% endblock %}
+{% block content %}
+<h2>Facebook albums</h2>
+<p class="muted">Import an account's albums page to compare Facebook's own photo counts with your downloads,
+  find albums you have not downloaded, and fill the Facebook titles on the Names tab.</p>
+
+{% if done %}<p class="alert info">Imported: {{ done }}</p>{% endif %}
+{% if error %}<p class="alert bad">{{ error }}</p>{% endif %}
+{% if not fb_writable %}<p class="alert warn">No writable data folder: imports cannot be saved. Mount <code>/data</code>.</p>{% endif %}
+
+<details class="alert info" {% if not rows %}open{% endif %}><summary><b>Import a saved albums page</b></summary>
+  <ol class="small">
+    <li>On Facebook, open the account's <b>Photos → Albums</b> page and <b>scroll to the very bottom</b> so every album is loaded.</li>
+    <li>Save it as <b>“Web Page, Complete”</b> (“HTML only” has no albums: Facebook draws them with JavaScript).</li>
+    <li>Upload the <code>.html</code> file below (the <code>_files</code> folder is not needed). It is read in memory:
+      only album IDs, titles and counts are kept, never the page (it can contain session tokens). Delete your saved copy afterwards.</li>
+  </ol>
+  <form method="post" action="{{ base }}/facebook/import" enctype="multipart/form-data" class="toolbar">
+    <input type="file" name="files" accept=".html,.htm,text/html" multiple required>
+    <button class="btn">Import</button>
+  </form>
+</details>
+
+{% if rows %}
+{% if not_downloaded %}
+<section class="alert warn">
+  <b>{{ not_downloaded|length }} album(s) on Facebook are not downloaded and not in albums.txt</b>
+  <p class="small">Lines for <code>albums.txt</code>. Add them only while gallery-dl is stopped (it rewrites that file from memory after each album).</p>
+  <pre class="cmd">{% for r in not_downloaded %}https://www.facebook.com/media/set/?set={{ r.sid }}&amp;type=3
+{% endfor %}</pre>
+</section>
+{% endif %}
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Page</th><th>Album (Facebook title)</th><th class="num">On Facebook</th><th class="num">On disk</th><th class="num">Difference</th><th>Download</th><th>Disk check</th></tr></thead>
+  <tbody>
+  {% for r in rows %}{% set ac = r.ac %}
+  <tr class="sev-{{ 'bad' if ac and ac.fb_diff and ac.fb_diff > 0 and not ac.fb_approx else 'warn' if not ac and not r.listed else 'ok' }}">
+    <td class="small"><bdi dir="auto">{{ r.fb.page or '?' }}</bdi></td>
+    <td class="name">{% if ac or r.listed %}<a href="{{ base }}/album/{{ r.sid }}">{% endif %}<bdi dir="auto">{{ r.fb.title or r.sid }}</bdi>{% if ac or r.listed %}</a>{% endif %}
+      <div class="sid">{{ r.sid }} {{ fbset(r.sid) }}</div></td>
+    <td class="num">{% if r.fb.count is not none %}{{ '~' if r.fb.approximate }}{{ r.fb.count|n }}{% else %}?{% endif %}</td>
+    <td class="num">{{ ac.media|n if ac else '–' }}</td>
+    <td class="num">{% if ac and ac.fb_diff is not none %}{% if ac.fb_diff > 0 %}<b class="t-bad">{{ ac.fb_diff }} missing</b>{% elif ac.fb_diff < 0 %}<span class="t-info">+{{ -ac.fb_diff }}</span>{% else %}<span class="t-ok">✓</span>{% endif %}{% elif ac and ac.in_progress %}<span class="muted">downloading</span>{% else %}–{% endif %}</td>
+    <td class="small">{% if r.listed %}{{ 'done' if r.listed.done else 'in albums.txt' }}{% elif ac %}on disk only{% else %}<span class="t-warn">not downloaded</span>{% endif %}</td>
+    <td>{{ verdict(ac) if ac else '' }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<section>
+  <h3>Imported pages</h3>
+  <ul class="small">{% for p in pages %}<li><bdi dir="auto">{{ p }}</bdi>
+    <form method="post" action="{{ base }}/facebook/forget" style="display:inline"><input type="hidden" name="page" value="{{ p }}">
+      <button class="btn small" title="Remove this page's albums from the dashboard">Forget</button></form></li>{% endfor %}</ul>
+  <p class="small muted">To refresh the counts later, save and import the page again: newer data replaces older.</p>
+</section>
+{% endif %}
+{% endblock %}

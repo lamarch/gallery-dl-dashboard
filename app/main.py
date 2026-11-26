@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from collections import OrderedDict
 
-from fastapi import FastAPI, Form, HTTPException, Query, Request
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,6 +19,8 @@ from . import albums as albums_mod
 from . import disk as disk_mod
 from .integrity import IntegrityScanner
 from .acks import Acks
+from .fbdata import FbStore
+from .fbpages import parse_albums_page
 from .ignores import Ignores
 from .names import NamesFile, read_albumprops
 from .logparse import END_REASONS, LogTail, decode_exit, set_log_tz
@@ -133,6 +135,9 @@ def same_origin(request: Request) -> bool:
 ACKS = Acks(os.path.join(CFG["data_dir"], "acknowledged-events.json")
             if os.path.isdir(CFG["data_dir"]) and os.access(CFG["data_dir"], os.W_OK) else None)
 
+FBSTORE = FbStore(os.path.join(CFG["data_dir"], "facebook-albums.json")
+                  if os.path.isdir(CFG["data_dir"]) and os.access(CFG["data_dir"], os.W_OK) else None)
+
 IGNORES = Ignores(os.path.join(CFG["data_dir"], "ignored-missing.tsv")
                   if os.path.isdir(CFG["data_dir"]) and os.access(CFG["data_dir"], os.W_OK) else None)
 
@@ -140,7 +145,8 @@ SCANNER = IntegrityScanner(CFG["downloads_root"], _cache_path, CFG["archive_file
                            CFG["integrity_mbps"], CFG["integrity_every"], _locked_current_set,
                            log_snapshot=_locked_log_snapshot,
                            fix_tz=_tz(CFG["fix_tz"], timezone.utc), fix_tz_name=CFG["fix_tz"],
-                           fix_step=CFG["fix_step"], ignored=IGNORES.snapshot)
+                           fix_step=CFG["fix_step"], ignored=IGNORES.snapshot,
+                           fb_counts=FBSTORE.counts)
 
 
 @asynccontextmanager
@@ -265,7 +271,7 @@ def ctx(request, **kw):
     acked = kw.pop("acked", None) or ACKS.checker()
     with MON.lock:
         st = MON.tail.state
-        h = header(st, MON.albums, MON.disk, now, acked=acked)
+        h = header(st, MON.albums, MON.disk, now, acked=acked, fb=FBSTORE.counts())
         kw.update(ir=SCANNER.report, ip=SCANNER.progress, scanner=SCANNER,
                   integrity_on=CFG["integrity"])
         kw.update(request=request, h=h, now=now, st=st, mon=MON, tail=MON.tail,
@@ -395,7 +401,8 @@ def _names_rows():
         for sid, a in disk.albums.items():
             if not sid.startswith("?"):
                 albums[sid] = (a.folder, a.title)
-    rows = NAMES.sync(albums, write=True) if NAMES.path else NAMES.sync(albums)
+    fbt = FBSTORE.titles()
+    rows = NAMES.sync(albums, write=True, fb_titles=fbt) if NAMES.path else NAMES.sync(albums, fb_titles=fbt)
     props = {}
     for r in rows:
         a = disk.albums.get(r.set_id) if disk else None
@@ -481,6 +488,66 @@ def album_ignore(request: Request, set_id: str, photo_id: str = Form(...), reaso
     _rebuild_soon()
     from urllib.parse import quote
     return RedirectResponse(f"{CFG['base']}/album/{quote(set_id)}#disk-check", status_code=303)
+
+
+MAX_PAGE_BYTES = 80 * 1024 * 1024
+
+
+@app.get("/facebook", response_class=HTMLResponse)
+def facebook_page(request: Request, done: str = "", error: str = ""):
+    fb = FBSTORE.snapshot()
+    rep = SCANNER.report
+    with MON.lock:
+        listed = {a.set_id: a for a in MON.albums}
+    rows = []
+    for sid, v in fb.items():
+        ac = rep.albums.get(sid) if rep else None
+        rows.append({"sid": sid, "fb": v, "ac": ac, "listed": listed.get(sid)})
+    order = {True: 0, False: 1}
+    rows.sort(key=lambda r: (r["fb"].get("page") or "", order[r["ac"] is None and r["listed"] is None],
+                             (r["fb"].get("title") or "").casefold()))
+    not_downloaded = [r for r in rows if r["ac"] is None and r["listed"] is None]
+    pages = sorted({v.get("page") or "?" for v in fb.values()})
+    return templates.TemplateResponse(request, "facebook.html", ctx(
+        request, rows=rows, not_downloaded=not_downloaded, pages=pages, done=done, error=error,
+        fb_writable=bool(FBSTORE.path), page="facebook"))
+
+
+@app.post("/facebook/import")
+async def facebook_import(request: Request, files: list[UploadFile] = File(...)):
+    """Parse saved pages IN MEMORY; only album IDs, titles and counts are kept."""
+    if not same_origin(request):
+        raise HTTPException(403, "cross-site request refused")
+    from urllib.parse import quote
+    msgs = []
+    try:
+        for f in files:
+            raw = await f.read(MAX_PAGE_BYTES + 1)
+            await f.close()
+            if len(raw) > MAX_PAGE_BYTES:
+                msgs.append(f"{f.filename}: too large")
+                continue
+            page = parse_albums_page(raw.decode("utf-8", errors="replace"))
+            del raw
+            if not page.albums:
+                msgs.append(f"{f.filename}: " + "; ".join(page.warnings))
+                continue
+            r = FBSTORE.import_page(page)
+            msgs.append(f"{f.filename}: {r['albums']} album(s), {r['new']} new, {r['updated']} updated"
+                        + (" (" + "; ".join(page.warnings) + ")" if page.warnings else ""))
+    except OSError as e:
+        return RedirectResponse(f"{CFG['base']}/facebook?error={quote(str(e))}", status_code=303)
+    _rebuild_soon()
+    return RedirectResponse(f"{CFG['base']}/facebook?done={quote(' | '.join(msgs))}", status_code=303)
+
+
+@app.post("/facebook/forget")
+def facebook_forget(request: Request, page: str = Form(...)):
+    if not same_origin(request):
+        raise HTTPException(403, "cross-site request refused")
+    FBSTORE.forget_page(page)
+    _rebuild_soon()
+    return RedirectResponse(f"{CFG['base']}/facebook", status_code=303)
 
 
 @app.post("/integrity/rescan")

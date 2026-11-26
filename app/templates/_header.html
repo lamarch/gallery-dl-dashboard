@@ -31,7 +31,7 @@
       <div class="k">ETA</div>
       <div class="v">{% if h.eta_seconds is not none %}~{{ h.eta_seconds|dur }}{% else %}–{% endif %}</div>
       <div class="s">{% if h.eta_pause_seconds %}incl. {{ h.eta_pause_seconds|dur }} of 1 h pauses{% endif %}</div>
-      <div class="s">{% if h.spp %}{{ h.spp|round(1) }} s/photo · ~{{ h.avg_album|round(0)|int }} photos/album{% endif %}</div>
+      <div class="s">{% if h.spp %}{{ h.spp|round(1) }} s/photo · {% if h.eta_from_fb %}sizes from Facebook for {{ h.eta_from_fb }} album(s){% else %}~{{ h.avg_album|round(0)|int }} photos/album{% endif %}{% endif %}</div>
     </div>
     <div class="tile">
       <div class="k">Downloaded</div>

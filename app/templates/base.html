@@ -16,6 +16,7 @@
   <a href="{{ base }}/events" {% if page == 'events' %}aria-current="page"{% endif %}>Events{% if bad_events %} <span class="pill bad">{{ bad_events }}</span>{% endif %}</a>
   <a href="{{ base }}/integrity" {% if page == 'integrity' %}aria-current="page"{% endif %}>Disk check{% if ir %}{% set _c = ir.counts() %}{% if _c.get('problems') %} <span class="pill bad">{{ _c.get('problems') }}</span>{% endif %}{% endif %}</a>
   <a href="{{ base }}/dates" {% if page == 'dates' %}aria-current="page"{% endif %}>Dates{% if ir and ir.dates %}{% set _d = ir.dates.counts() %}{% if _d.get('changed') %} <span class="pill bad">{{ _d.get('changed') }}</span>{% endif %}{% endif %}</a>
+  <a href="{{ base }}/facebook" {% if page == 'facebook' %}aria-current="page"{% endif %}>Facebook</a>
   <a href="{{ base }}/names" {% if page == 'names' %}aria-current="page"{% endif %}>Names</a>
   <a href="{{ base }}/diagnostics" {% if page == 'diagnostics' %}aria-current="page"{% endif %}>Diagnostics</a>
   <span class="tz">times in {{ tzname }}</span>

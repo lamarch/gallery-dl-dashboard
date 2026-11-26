@@ -509,6 +509,9 @@ class AlbumCheck:
     log_expected: Optional[int] = None     # photos in the last pass that reached the end
     log_not_on_disk: list = field(default_factory=list)   # [(photo_id, log status)]
     log_extra_on_disk: list = field(default_factory=list)  # on disk, not in last full pass
+    fb_count: Optional[int] = None        # photo count shown by Facebook (imported page)
+    fb_approx: bool = False               # Facebook rounded it ("1,2 k")
+    fb_diff: Optional[int] = None         # Facebook count - photos on disk
 
     @property
     def missing_in_order(self) -> list:
@@ -605,7 +608,8 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
                  archive: Optional[set], archive_error: Optional[str],
                  current_set: Optional[str], started: float, now: float,
                  log: Optional[dict] = None, present_now=None,
-                 album_started: Optional[dict] = None, ignored: Optional[dict] = None) -> Report:
+                 album_started: Optional[dict] = None, ignored: Optional[dict] = None,
+                 fb: Optional[dict] = None) -> Report:
     """`log`: {set_id: {"passes", "last_end", "last_ids", "photos": {id: (status, ts)}}}
     as built by status.log_snapshot(). `started` is when the files were listed:
     photos the log saw after that cannot be on the list yet and are ignored."""
@@ -864,6 +868,29 @@ def build_report(entries: list[FileEntry], json_only: list[FileEntry], other: li
                 txt += f"; {len(known)} ID(s) known"
             a.issues.append(Issue("bad", "missing", txt))
 
+    # ---- Facebook's own photo count (imported albums page) ----------------------
+    for sid, (count, approx) in (fb or {}).items():
+        a = rep.albums.get(sid)
+        if a is None or count is None:
+            continue                     # not downloaded at all: listed on the Facebook tab
+        a.fb_count, a.fb_approx = count, approx
+        if a.in_progress:
+            continue
+        have = len(disk_ids.get(sid, ()))
+        a.fb_diff = diff = count - have
+        if diff > 0:
+            if approx and diff <= max(1, count * 0.05):
+                a.issues.append(Issue("warn", "fb_count",
+                                      f"Facebook shows about {count} photos (rounded), {have} on disk"))
+            else:
+                a.issues.append(Issue("bad", "fb_count",
+                                      f"Facebook shows {count} photos, {have} on disk: {diff} missing"))
+                a.missing_estimate = max(a.missing_estimate, diff)
+        elif diff < 0:
+            a.issues.append(Issue("info", "fb_count",
+                                  f"{-diff} more photo(s) on disk than Facebook shows "
+                                  f"(deleted on Facebook since the download?)"))
+
     # ---- orphans --------------------------------------------------------------
     for e in json_only:
         if now - e.ctime > TRANSIENT:
@@ -898,7 +925,7 @@ class IntegrityScanner:
                  max_mbps: float = 40.0, rescan_every: float = 900.0,
                  current_set=lambda: None, clock=time.time, log_snapshot=None,
                  rebuild_every: float = 60.0, fix_tz=None, fix_tz_name: str = "UTC",
-                 fix_step: float = 1.0, ignored=None):
+                 fix_step: float = 1.0, ignored=None, fb_counts=None):
         self.root = root
         self.cache = Cache(cache_path)
         self.archive_path = archive_path
@@ -912,6 +939,7 @@ class IntegrityScanner:
         self.fix_tz_name = fix_tz_name
         self.fix_step = fix_step
         self.ignored = ignored            # callable -> {set_id: {photo_id: reason}}
+        self.fb_counts = fb_counts        # callable -> {set_id: (count, approximate)}
         self._last_lists = None
         self._album_started: dict = {}   # set_id -> time of its last re-check
         self._dir_mtimes: dict = {}      # album folder -> mtime_ns when it was listed
@@ -1184,7 +1212,8 @@ class IntegrityScanner:
         rep = build_report(media, json_only, other, archive, aerr,
                            self.current_set(), started, self.clock(), log,
                            present_now=self.present_now, album_started=dict(self._album_started),
-                           ignored=self.ignored() if self.ignored else None)
+                           ignored=self.ignored() if self.ignored else None,
+                           fb=self.fb_counts() if self.fb_counts else None)
         rep.partial = partial
         from .dates import build_dates
         from datetime import timezone as _tz

@@ -205,10 +205,11 @@ class Header:
     eta_pause_seconds: Optional[float] = None
     spp: Optional[float] = None
     avg_album: Optional[float] = None
+    eta_from_fb: int = 0              # remaining albums whose size comes from Facebook
 
 
 def header(state: LogState, albums: list, disk, now: Optional[datetime] = None,
-           acked=None) -> Header:
+           acked=None, fb: Optional[dict] = None) -> Header:
     now = now or datetime.now(timezone.utc)
     s = state.session
     if s is None:
@@ -258,6 +259,8 @@ def header(state: LogState, albums: list, disk, now: Optional[datetime] = None,
     cur = job or (s.jobs[-1] if s.jobs else None)
     if cur is not None:
         h.set_id = cur.set_id
+        if fb and cur.set_id in fb:
+            h.album_expected = fb[cur.set_id][0]
         d = disk.albums.get(cur.set_id) if disk and cur.set_id else None
         if d:
             h.account = d.username or d.account_folder
@@ -301,15 +304,19 @@ def header(state: LogState, albums: list, disk, now: Optional[datetime] = None,
         if not done_sizes and disk:
             done_sizes = [d.media for d in disk.albums.values() if d.media]
         avg = mean(done_sizes) if done_sizes else 50.0
+        fb = fb or {}
+        size = lambda sid: fb[sid][0] if sid in fb and fb[sid][0] is not None else avg  # noqa: E731
         remaining = [a for a in albums if not a.done and a.set_id != h.set_id]
         cur_left = 0.0
         if job is not None:
+            expected = size(h.set_id)
             if act and act.reason == "extractor" and act.until and act.until > now:
-                cur_left = (act.until - now).total_seconds() + avg * spp
+                cur_left = (act.until - now).total_seconds() + expected * spp
             else:
-                cur_left = max(avg - h.album_seen, 0) * spp
+                cur_left = max(expected - h.album_seen, 0) * spp
         pauses = len(remaining) * EXTRACTOR_PAUSE
-        h.eta_seconds = cur_left + pauses + len(remaining) * avg * spp
+        h.eta_seconds = cur_left + pauses + sum(size(a.set_id) for a in remaining) * spp
+        h.eta_from_fb = sum(1 for a in remaining if a.set_id in fb)
         h.eta_pause_seconds = pauses
         h.spp, h.avg_album = spp, avg
     return h
